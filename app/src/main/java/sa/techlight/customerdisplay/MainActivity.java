@@ -46,6 +46,8 @@ import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
+import org.json.JSONArray;
+
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -849,8 +851,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     @Override public void onRaw(String raw) {
         if (raw == null) return;
         String compactRaw = raw.length() > 16000 ? raw.substring(0, 16000) + "…" : raw;
+        JSONArray history;
+        try {
+            history = new JSONArray(diagnostics.getString("raw_history", "[]"));
+        } catch (Exception ignored) {
+            history = new JSONArray();
+        }
+        String historyFrame = raw.length() > 6000 ? raw.substring(0, 6000) + "…" : raw;
+        history.put(historyFrame);
+        while (history.length() > 12) history.remove(0);
         diagnostics.edit()
                 .putString("last_raw", compactRaw)
+                .putString("raw_history", history.toString())
                 .putInt("last_raw_length", raw.length())
                 .putLong("last_raw_at", System.currentTimeMillis())
                 .apply();

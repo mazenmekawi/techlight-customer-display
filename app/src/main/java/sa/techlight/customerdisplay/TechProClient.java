@@ -7,11 +7,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Iterator;
 import java.util.Locale;
-import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -86,11 +83,9 @@ public final class TechProClient {
                     return;
                 }
                 socket = webSocket;
-                boolean helloSent = webSocket.send(helloEnvelope());
                 main.post(() -> {
                     if (isCurrent(currentGeneration)) {
                         listener.onDiagnostic("WEBSOCKET_OPEN", url);
-                        listener.onDiagnostic("HELLO_SENT", helloSent ? "version=1" : "send failed");
                         listener.onConnected();
                     }
                 });
@@ -409,10 +404,13 @@ public final class TechProClient {
                     "orderItems", "invoiceItems", "rows", "order_items", "invoice_items", "cart_items",
                     "itemList", "Itemlist", "pos_dt_Collection", "invoiceDetails", "orderDetails", "details"
             };
+            JSONArray emptyPreferred = null;
             for (String key : preferredKeys) {
                 if (!hasKey(object, key)) continue;
                 JSONArray candidate = arrayFrom(valueForKey(object, key));
-                if (candidate != null) return candidate;
+                if (candidate == null) continue;
+                if (candidate.length() > 0) return candidate;
+                if (emptyPreferred == null) emptyPreferred = candidate;
             }
             if (looksLikeItemObject(object)) {
                 JSONArray single = new JSONArray();
@@ -430,7 +428,7 @@ public final class TechProClient {
                 JSONArray nested = findItemArrayRecursive(nestedValue, depth + 1);
                 if (nested != null && nested.length() > 0) return nested;
             }
-            return null;
+            return emptyPreferred;
         }
         if (structured instanceof JSONArray) {
             JSONArray array = (JSONArray) structured;
@@ -648,6 +646,15 @@ public final class TechProClient {
 
     private synchronized OrderState mergeOrderPatch(OrderState incoming) {
         if (incoming == null) return null;
+        boolean suspiciousEmptySnapshot = incoming.itemsIncluded
+                && incoming.items.isEmpty()
+                && incoming.total > 0.0001
+                && !incoming.clearRequested
+                && lastOrder != null
+                && !lastOrder.items.isEmpty();
+        if (suspiciousEmptySnapshot) {
+            incoming.items.addAll(lastOrder.items);
+        }
         if (!incoming.clearRequested && !incoming.itemsIncluded && lastOrder != null) {
             incoming.items.addAll(lastOrder.items);
         }
@@ -661,13 +668,5 @@ public final class TechProClient {
         if (incoming.itemsIncluded && !incoming.subtotalIncluded) incoming.subtotal = sumItems(incoming);
         lastOrder = incoming;
         return incoming;
-    }
-
-    private static String helloEnvelope() {
-        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
-        format.setTimeZone(TimeZone.getTimeZone("UTC"));
-        String sentAt = format.format(new Date());
-        return "{\"type\":\"hello\",\"payload\":{\"client\":\"TechLightCustomerDisplay\"},"
-                + "\"sentAt\":\"" + sentAt + "\",\"version\":1}";
     }
 }
