@@ -3,6 +3,7 @@ package sa.techlight.customerdisplay;
 import android.Manifest;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -55,6 +56,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private TechProClient client;
     private AbleSignController able;
     private SharedPreferences ui;
+    private SharedPreferences diagnostics;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private int accent = Color.rgb(91, 42, 134);
     private boolean compact;
@@ -62,7 +64,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
-        if (able == null || !ui.getBoolean("able_idle", true)) return;
+        if (able == null || !ui.getBoolean("able_idle", false)) return;
         if (!able.openPlayer()) showToast("AbleSign غير مثبت على الجهاز");
     };
 
@@ -73,6 +75,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         getWindow().getDecorView().setSystemUiVisibility(5894);
         able = new AbleSignController(this);
         ui = getSharedPreferences("ui", 0);
+        if (!ui.getBoolean("v6_idle_migration", false)) {
+            ui.edit()
+                    .putBoolean("able_idle", false)
+                    .putBoolean("v6_idle_migration", true)
+                    .apply();
+        }
+        diagnostics = getSharedPreferences("diagnostics", 0);
         buildUi();
         restoreOrPair();
     }
@@ -552,15 +561,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void prepareCamera() {
-        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
-            new AlertDialog.Builder(this)
-                    .setTitle("تعذّر العثور على الكاميرا")
-                    .setMessage("لم يتعرّف Android على كاميرا في هذا الجهاز. استخدم إدخال IP والمنفذ لإتمام الربط.")
-                    .setPositiveButton("إدخال يدوي", (dialog, which) -> manualPair())
-                    .setNegativeButton("إلغاء", null)
-                    .show();
-            return;
-        }
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
             return;
@@ -569,14 +569,26 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void launchScanner() {
-        IntentIntegrator integrator = new IntentIntegrator(this);
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
-        integrator.setPrompt("وجّه الكاميرا إلى QR الاقتران في Tech Pro");
-        integrator.setBeepEnabled(true);
-        integrator.setBarcodeImageEnabled(false);
-        integrator.setOrientationLocked(false);
-        integrator.setCameraId(0);
-        integrator.initiateScan();
+        try {
+            IntentIntegrator integrator = new IntentIntegrator(this);
+            integrator.setCaptureActivity(QrCaptureActivity.class);
+            integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+            integrator.setPrompt("وجّه الكاميرا إلى QR الاقتران في Tech Pro");
+            integrator.setBeepEnabled(true);
+            integrator.setBarcodeImageEnabled(false);
+            integrator.setOrientationLocked(false);
+            integrator.setTimeout(300000);
+            integrator.initiateScan();
+            writeDiagnostic("CAMERA_LAUNCHED", "QrCaptureActivity");
+        } catch (Exception error) {
+            writeDiagnostic("CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
+            new AlertDialog.Builder(this)
+                    .setTitle("تعذّر فتح ماسح QR")
+                    .setMessage("تعذّر تشغيل الكاميرا على هذا الجهاز. يمكنك المحاولة مجددًا أو استخدام IP والمنفذ.")
+                    .setPositiveButton("محاولة مجددًا", (dialog, which) -> prepareCamera())
+                    .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
+                    .show();
+        }
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -654,6 +666,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 .putString("ip", ip)
                 .putInt("port", port)
                 .apply();
+        writeDiagnostic("PAIR_SAVED", ip + ":" + port);
         buildUi();
         connect(ip, port);
     }
@@ -674,6 +687,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private void connect(String ip, int port) {
         setConnectionState("جارٍ الاتصال", false);
         showEmptyOrder("جارٍ الاتصال بـ Tech Pro", ip + ":" + port);
+        writeDiagnostic("CONNECTING", "ws://" + ip + ":" + port);
         if (client != null) client.stop();
         client = new TechProClient(ip, port, this);
         client.start();
@@ -691,12 +705,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override public void onConnected() {
         runOnUiThread(() -> {
-            setConnectionState("متصل", true);
-            showEmptyOrder("تم الاتصال بـ Tech Pro", "افتح طلبًا أو أضف صنفًا من شاشة الكاشير");
+            setConnectionState("متصل — بانتظار البيانات", true);
+            showEmptyOrder("تم فتح اتصال Tech Pro", "بانتظار أول fullSnapshot من شاشة الكاشير");
         });
     }
 
     @Override public void onDisconnected(String reason) {
+        writeDiagnostic("DISCONNECTED", reason);
         runOnUiThread(() -> {
             setConnectionState("إعادة الاتصال", false);
             showEmptyOrder("لم يصل Tech Pro بعد", "افتح وضع شاشة العميل في الكاشير وتأكد أن الجهازين على نفس شبكة الواي فاي");
@@ -704,10 +719,20 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     @Override public void onRaw(String raw) {
-        // Reserved for future Tech Pro events that are not order updates.
+        if (raw == null) return;
+        String compactRaw = raw.length() > 600 ? raw.substring(0, 600) + "…" : raw;
+        diagnostics.edit()
+                .putString("last_raw", compactRaw)
+                .putLong("last_raw_at", System.currentTimeMillis())
+                .apply();
+    }
+
+    @Override public void onDiagnostic(String stage, String detail) {
+        writeDiagnostic(stage, detail);
     }
 
     @Override public void onOrder(OrderState order) {
+        writeDiagnostic("ORDER_RENDERED", "items=" + order.items.size() + " — total=" + order.total);
         runOnUiThread(() -> {
             if (!paired) return;
             bringCustomerDisplayForward();
@@ -717,7 +742,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             if (empty) {
                 showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
                 setConnectionState("متصل", true);
-                scheduleIdle(8000);
+                scheduleIdle(30000);
             } else {
                 for (OrderState.Item item : order.items) addOrderRow(item);
             }
@@ -736,9 +761,25 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void bringCustomerDisplayForward() {
         if (hasWindowFocus()) return;
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startActivity(intent);
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (manager != null) manager.moveTaskToFront(getTaskId(), 0);
+            writeDiagnostic("TASK_FOREGROUND", "moveTaskToFront");
+        } catch (Exception error) {
+            writeDiagnostic("TASK_FOREGROUND_FAILED", error.getClass().getSimpleName());
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+        }
+    }
+
+    private void writeDiagnostic(String stage, String detail) {
+        if (diagnostics == null) return;
+        diagnostics.edit()
+                .putString("stage", stage == null ? "" : stage)
+                .putString("detail", detail == null ? "" : detail)
+                .putLong("updated_at", System.currentTimeMillis())
+                .apply();
     }
 
     private void addOrderRow(OrderState.Item item) {

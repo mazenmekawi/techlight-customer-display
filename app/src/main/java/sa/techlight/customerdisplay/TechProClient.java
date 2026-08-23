@@ -22,10 +22,10 @@ public final class TechProClient {
         void onDisconnected(String reason);
         void onOrder(OrderState order);
         void onRaw(String raw);
+        void onDiagnostic(String stage, String detail);
     }
 
     private static final long RECONNECT_DELAY_MS = 2000;
-    private static final String[] SOCKET_PATHS = {"", "/ws", "/customer-display"};
 
     private final String host;
     private final int port;
@@ -34,7 +34,7 @@ public final class TechProClient {
     private final OkHttpClient http = new OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(20, TimeUnit.SECONDS)
+            .pingInterval(10, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
 
@@ -42,7 +42,6 @@ public final class TechProClient {
     private volatile int generation;
     private volatile int disconnectedGeneration = -1;
     private volatile WebSocket socket;
-    private int pathIndex;
 
     public TechProClient(String host, int port, Listener listener) {
         this.host = host;
@@ -70,8 +69,8 @@ public final class TechProClient {
         if (!running) return;
         final int currentGeneration = ++generation;
         disconnectedGeneration = -1;
-        String path = SOCKET_PATHS[pathIndex];
-        String url = "ws://" + host + ":" + port + path;
+        String url = "ws://" + host + ":" + port;
+        diagnostic(currentGeneration, "CONNECTING", url);
         Request request = new Request.Builder().url(url).build();
         socket = http.newWebSocket(request, new WebSocketListener() {
             @Override public void onOpen(WebSocket webSocket, Response response) {
@@ -81,7 +80,10 @@ public final class TechProClient {
                 }
                 socket = webSocket;
                 main.post(() -> {
-                    if (isCurrent(currentGeneration)) listener.onConnected();
+                    if (isCurrent(currentGeneration)) {
+                        listener.onDiagnostic("WEBSOCKET_OPEN", url);
+                        listener.onConnected();
+                    }
                 });
             }
 
@@ -107,9 +109,6 @@ public final class TechProClient {
             @Override public void onFailure(WebSocket webSocket, Throwable error, Response response) {
                 if (!isCurrent(currentGeneration)) return;
                 int responseCode = response == null ? 0 : response.code();
-                if (responseCode == 400 || responseCode == 404) {
-                    pathIndex = (pathIndex + 1) % SOCKET_PATHS.length;
-                }
                 String reason = error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage());
                 if (responseCode > 0) reason = "HTTP " + responseCode + " — " + reason;
                 scheduleReconnect(currentGeneration, reason);
@@ -123,6 +122,7 @@ public final class TechProClient {
 
     private void scheduleReconnect(int currentGeneration, String reason) {
         if (!isCurrent(currentGeneration)) return;
+        diagnostic(currentGeneration, "DISCONNECTED", reason);
         if (disconnectedGeneration != currentGeneration) {
             disconnectedGeneration = currentGeneration;
             main.post(() -> {
@@ -145,15 +145,22 @@ public final class TechProClient {
         if (envelope != null && "heartbeat".equalsIgnoreCase(firstText(envelope, "type", "messageType", "event"))) {
             webSocket.send("{\"type\":\"pong\"}");
         }
-        OrderState order = parseOrder(trimmed);
+        OrderState order = parseOrderMessage(trimmed);
+        String type = envelope == null ? "RAW" : firstText(envelope, "type", "messageType", "event", "action");
+        String diagnosticType = type == null ? "SNAPSHOT" : type;
+        int itemCount = order == null || order.items == null ? -1 : order.items.size();
         main.post(() -> {
             if (!isCurrent(currentGeneration)) return;
+            listener.onDiagnostic(
+                    order == null ? "MESSAGE_UNPARSED" : "MESSAGE_PARSED",
+                    diagnosticType + (itemCount >= 0 ? " — items=" + itemCount : "")
+            );
             listener.onRaw(raw);
             if (order != null) listener.onOrder(order);
         });
     }
 
-    private OrderState parseOrder(String raw) {
+    static OrderState parseOrderMessage(String raw) {
         try {
             JSONObject envelope = objectFrom(raw);
             if (envelope == null) return null;
@@ -234,6 +241,12 @@ public final class TechProClient {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private void diagnostic(int currentGeneration, String stage, String detail) {
+        main.post(() -> {
+            if (isCurrent(currentGeneration)) listener.onDiagnostic(stage, detail);
+        });
     }
 
     private static double sumItems(OrderState order) {
