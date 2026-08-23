@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -19,6 +21,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -34,13 +37,25 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
+import com.google.zxing.MultiFormatReader;
+import com.google.zxing.RGBLuminanceSource;
+import com.google.zxing.Result;
+import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
+import java.io.InputStream;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Locale;
+import java.util.Map;
 
 public final class MainActivity extends Activity implements TechProClient.Listener {
     private static final int CAMERA_REQ = 501;
+    private static final int CAMERA_PHOTO_REQ = 502;
     private static final int SETTINGS_REQ = 77;
     private static final long SETTINGS_VISIBLE_MS = 6500;
 
@@ -53,6 +68,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private TextView title;
     private TextView statusDot;
     private TextView settingsPill;
+    private TextView itemCount;
     private TechProClient client;
     private AbleSignController able;
     private SharedPreferences ui;
@@ -61,6 +77,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private int accent = Color.rgb(91, 42, 134);
     private boolean compact;
     private boolean paired;
+    private boolean requestPhotoAfterPermission;
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
@@ -317,6 +334,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         TextView orderLabel = text("تفاصيل الطلب", compact ? 16 : 18, 0xFF353039);
         orderLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        itemCount = text("0 صنف", 12, 0xFF615A67);
+        itemCount.setGravity(Gravity.CENTER);
+        itemCount.setBackground(round(0xFFF5F2F7, 16));
+        itemCount.setPadding(dp(11), dp(5), dp(11), dp(5));
+        LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        countParams.setMargins(0, 0, dp(7), 0);
+        header.addView(itemCount, countParams);
         TextView liveBadge = text("مباشر", 12, accent);
         liveBadge.setGravity(Gravity.CENTER);
         liveBadge.setBackground(round(lighten(accent, 0.91f), 16));
@@ -452,6 +479,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void showEmptyOrder(String heading, String subheading) {
         if (orderList == null) return;
+        if (itemCount != null) itemCount.setText("0 صنف • 0 قطعة");
         orderList.removeAllViews();
         LinearLayout empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
@@ -535,14 +563,23 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         heading.setGravity(Gravity.CENTER);
         heading.setPadding(dp(8), dp(10), dp(8), dp(2));
         card.addView(heading);
-        TextView detail = text("اعرض QR الاقتران من Tech Pro ثم امسحه بكاميرا هذا الجهاز.", compact ? 13 : 15, 0xFF77717C);
+        TextView detail = text("اعرض QR الاقتران من Tech Pro. يمكنك تصويره بكاميرا الجهاز أو استخدام المسح المباشر.", compact ? 13 : 15, 0xFF77717C);
         detail.setGravity(Gravity.CENTER);
         detail.setPadding(dp(16), dp(2), dp(16), dp(15));
         card.addView(detail);
 
-        TextView scan = action("فتح الكاميرا ومسح QR", R.drawable.ic_scan_qr, true);
-        scan.setOnClickListener(view -> prepareCamera());
-        card.addView(scan, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)));
+        TextView photo = action("فتح الكاميرا وتصوير QR", R.drawable.ic_scan_qr, true);
+        photo.setOnClickListener(view -> preparePhotoCamera());
+        card.addView(photo, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+
+        TextView liveScan = action("المسح المباشر", R.drawable.ic_scan_qr, false);
+        liveScan.setOnClickListener(view -> prepareLiveScanner());
+        LinearLayout.LayoutParams liveParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(54)
+        );
+        liveParams.setMargins(0, dp(8), 0, 0);
+        card.addView(liveScan, liveParams);
 
         TextView alternative = text("أو استخدم الربط اليدوي", 12, 0xFF9A949E);
         alternative.setGravity(Gravity.CENTER);
@@ -560,12 +597,22 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         setConnectionState("غير مرتبط", false);
     }
 
-    private void prepareCamera() {
+    private void prepareLiveScanner() {
+        requestPhotoAfterPermission = false;
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
             return;
         }
         launchScanner();
+    }
+
+    private void preparePhotoCamera() {
+        requestPhotoAfterPermission = true;
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
+            return;
+        }
+        launchPhotoCamera();
     }
 
     private void launchScanner() {
@@ -584,8 +631,24 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             writeDiagnostic("CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
             new AlertDialog.Builder(this)
                     .setTitle("تعذّر فتح ماسح QR")
-                    .setMessage("تعذّر تشغيل الكاميرا على هذا الجهاز. يمكنك المحاولة مجددًا أو استخدام IP والمنفذ.")
-                    .setPositiveButton("محاولة مجددًا", (dialog, which) -> prepareCamera())
+                    .setMessage("تعذّر تشغيل المسح المباشر. استخدم تصوير QR بكاميرا الجهاز أو أدخل IP والمنفذ.")
+                    .setPositiveButton("تصوير QR", (dialog, which) -> preparePhotoCamera())
+                    .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
+                    .show();
+        }
+    }
+
+    private void launchPhotoCamera() {
+        try {
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            startActivityForResult(intent, CAMERA_PHOTO_REQ);
+            writeDiagnostic("SYSTEM_CAMERA_LAUNCHED", "ACTION_IMAGE_CAPTURE");
+        } catch (Exception error) {
+            writeDiagnostic("SYSTEM_CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
+            new AlertDialog.Builder(this)
+                    .setTitle("تعذّر فتح كاميرا الجهاز")
+                    .setMessage("لا يوجد تطبيق كاميرا متاح. افتح صلاحية الكاميرا أو استخدم الربط اليدوي.")
+                    .setPositiveButton("إعدادات التطبيق", (dialog, which) -> openAppSettings())
                     .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
                     .show();
         }
@@ -595,21 +658,24 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != CAMERA_REQ) return;
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            launchScanner();
+            if (requestPhotoAfterPermission) launchPhotoCamera();
+            else launchScanner();
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("صلاحية الكاميرا مطلوبة")
                 .setMessage("فعّل صلاحية الكاميرا حتى يستطيع التطبيق مسح QR.")
-                .setPositiveButton("فتح إعدادات التطبيق", (dialog, which) -> {
-                    Intent intent = new Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.parse("package:" + getPackageName())
-                    );
-                    startActivity(intent);
-                })
+                .setPositiveButton("فتح إعدادات التطبيق", (dialog, which) -> openAppSettings())
                 .setNegativeButton("إلغاء", null)
                 .show();
+    }
+
+    private void openAppSettings() {
+        Intent intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())
+        );
+        startActivity(intent);
     }
 
     private void manualPair() {
@@ -673,14 +739,82 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == CAMERA_PHOTO_REQ) {
+            if (result == RESULT_OK) decodeQrPhoto(data);
+            else writeDiagnostic("SYSTEM_CAMERA_CANCELLED", "result=" + result);
+            return;
+        }
         IntentResult qr = IntentIntegrator.parseActivityResult(request, result, data);
         if (qr != null) {
-            if (qr.getContents() != null) pairText(qr.getContents());
+            if (qr.getContents() != null) {
+                writeDiagnostic("LIVE_QR_DECODED", "characters=" + qr.getContents().length());
+                pairText(qr.getContents());
+            } else {
+                writeDiagnostic("LIVE_SCANNER_CANCELLED", "no result");
+            }
             return;
         }
         if (request == SETTINGS_REQ) {
             buildUi();
             restoreOrPair();
+        }
+    }
+
+    private void decodeQrPhoto(Intent data) {
+        Bitmap bitmap = null;
+        try {
+            if (data != null && data.getExtras() != null) {
+                Object thumbnail = data.getExtras().get("data");
+                if (thumbnail instanceof Bitmap) bitmap = (Bitmap) thumbnail;
+            }
+            if (bitmap == null && data != null && data.getData() != null) {
+                bitmap = decodeCameraUri(data.getData());
+            }
+            if (bitmap == null) throw new IllegalArgumentException("Camera returned no image");
+
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            int[] pixels = new int[width * height];
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+            RGBLuminanceSource source = new RGBLuminanceSource(width, height, pixels);
+            Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
+            hints.put(DecodeHintType.POSSIBLE_FORMATS, Collections.singletonList(BarcodeFormat.QR_CODE));
+            hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+
+            MultiFormatReader reader = new MultiFormatReader();
+            Result decoded;
+            try {
+                decoded = reader.decode(new BinaryBitmap(new HybridBinarizer(source)), hints);
+            } catch (Exception normalError) {
+                reader.reset();
+                decoded = reader.decode(new BinaryBitmap(new HybridBinarizer(source.invert())), hints);
+            }
+            writeDiagnostic("SYSTEM_QR_DECODED", width + "x" + height);
+            pairText(decoded.getText());
+        } catch (Exception error) {
+            writeDiagnostic("SYSTEM_QR_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
+            new AlertDialog.Builder(this)
+                    .setTitle("لم يظهر QR بوضوح")
+                    .setMessage("قرّب الكاميرا من QR وثبّت الصورة ثم حاول مرة أخرى.")
+                    .setPositiveButton("إعادة التصوير", (dialog, which) -> preparePhotoCamera())
+                    .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
+                    .show();
+        }
+    }
+
+    private Bitmap decodeCameraUri(Uri uri) throws Exception {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (InputStream stream = getContentResolver().openInputStream(uri)) {
+            BitmapFactory.decodeStream(stream, null, bounds);
+        }
+        int sample = 1;
+        int largest = Math.max(bounds.outWidth, bounds.outHeight);
+        while (largest / sample > 1800) sample *= 2;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = Math.max(1, sample);
+        try (InputStream stream = getContentResolver().openInputStream(uri)) {
+            return BitmapFactory.decodeStream(stream, null, options);
         }
     }
 
@@ -720,9 +854,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override public void onRaw(String raw) {
         if (raw == null) return;
-        String compactRaw = raw.length() > 600 ? raw.substring(0, 600) + "…" : raw;
+        String compactRaw = raw.length() > 16000 ? raw.substring(0, 16000) + "…" : raw;
         diagnostics.edit()
                 .putString("last_raw", compactRaw)
+                .putInt("last_raw_length", raw.length())
                 .putLong("last_raw_at", System.currentTimeMillis())
                 .apply();
     }
@@ -739,8 +874,20 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             handler.removeCallbacks(idleTask);
             orderList.removeAllViews();
             boolean empty = order.items == null || order.items.isEmpty();
+            int rows = empty ? 0 : order.items.size();
+            double units = 0;
+            if (!empty) {
+                for (OrderState.Item item : order.items) units += item.qty;
+            }
+            if (itemCount != null) {
+                itemCount.setText(rows + " صنف • " + formatQuantity(units) + " قطعة");
+            }
             if (empty) {
-                showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                if (order.total > 0.0001) {
+                    showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
+                } else {
+                    showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                }
                 setConnectionState("متصل", true);
                 scheduleIdle(30000);
             } else {
@@ -797,6 +944,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         TextView name = text(item.name, compact ? 16 : 20, 0xFF2D2930);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         name.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        name.setMinHeight(dp(compact ? 42 : 50));
+        name.setMaxLines(2);
         TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 14 : 19, 0xFF57515B);
         price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
 

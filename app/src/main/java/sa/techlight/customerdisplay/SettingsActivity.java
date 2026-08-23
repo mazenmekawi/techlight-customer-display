@@ -473,16 +473,27 @@ public final class SettingsActivity extends Activity {
     private String diagnosticReport(SharedPreferences diagnostics, String ip, int port) {
         long updatedAt = diagnostics.getLong("updated_at", 0);
         long rawAt = diagnostics.getLong("last_raw_at", 0);
+        int rawLength = diagnostics.getInt("last_raw_length", 0);
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
         String updated = updatedAt == 0 ? "لا يوجد" : format.format(new Date(updatedAt));
         String rawTime = rawAt == 0 ? "لا يوجد" : format.format(new Date(rawAt));
         String raw = diagnostics.getString("last_raw", "");
-        return "العنوان: " + (ip == null ? "غير مرتبط" : "ws://" + ip + ":" + port)
+        return "الإصدار: " + appVersion()
+                + "\nالعنوان: " + (ip == null ? "غير مرتبط" : "ws://" + ip + ":" + port)
                 + "\nالمرحلة: " + diagnostics.getString("stage", "لا يوجد")
                 + "\nالتفصيل: " + diagnostics.getString("detail", "لا يوجد")
                 + "\nآخر تحديث: " + updated
-                + "\nآخر رسالة: " + rawTime
+                + "\nآخر رسالة: " + rawTime + " — " + rawLength + " حرف"
                 + (raw.isEmpty() ? "" : "\nRAW: " + raw);
+    }
+
+    private String appVersion() {
+        try {
+            String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return version == null ? "غير معروف" : version;
+        } catch (Exception ignored) {
+            return "غير معروف";
+        }
     }
 
     private TextView fieldLabel(String value) {
