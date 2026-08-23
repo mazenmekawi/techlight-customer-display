@@ -8,6 +8,9 @@ public final class AbleSignController {
     public static final String PACKAGE = "tv.ablesign.app";
     private final Context context;
     public AbleSignController(Context context){ this.context = context; }
+    public boolean isInstalled(){
+        return context.getPackageManager().getLaunchIntentForPackage(PACKAGE) != null;
+    }
     public boolean openPlayer(){
         PackageManager pm = context.getPackageManager();
         Intent i = pm.getLaunchIntentForPackage(PACKAGE);

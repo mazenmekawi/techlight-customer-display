@@ -1,190 +1,785 @@
 package sa.techlight.customerdisplay;
 
 import android.Manifest;
-import android.app.*;
-import android.content.*;
+import android.animation.ObjectAnimator;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.*;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
-import android.os.*;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
-import android.view.*;
-import android.view.animation.*;
-import android.widget.*;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
+import android.view.animation.DecelerateInterpolator;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
-import java.util.*;
+
+import java.util.Locale;
 
 public final class MainActivity extends Activity implements TechProClient.Listener {
-    private static final int CAMERA_REQ=501;
-    private static final int SETTINGS_REQ=77;
-    private LinearLayout root,orderList,body;
-    private TextView status,total,title,footer,statusDot,emptyTitle,emptySub;
-    private ImageView logo;
+    private static final int CAMERA_REQ = 501;
+    private static final int SETTINGS_REQ = 77;
+    private static final long SETTINGS_VISIBLE_MS = 6500;
+
+    private FrameLayout shell;
+    private LinearLayout root;
+    private LinearLayout orderList;
+    private LinearLayout body;
+    private TextView status;
+    private TextView total;
+    private TextView title;
+    private TextView statusDot;
+    private TextView settingsPill;
     private TechProClient client;
     private AbleSignController able;
     private SharedPreferences ui;
-    private final Handler handler=new Handler(Looper.getMainLooper());
-    private final Runnable idleTask=()->{ if(able!=null&&!able.openPlayer()) showToast("AbleSign غير مثبت على الجهاز"); };
-    private int accent=Color.rgb(91,42,134);
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private int accent = Color.rgb(91, 42, 134);
+    private boolean compact;
+    private boolean paired;
 
-    @Override public void onCreate(Bundle b){
-        super.onCreate(b);
+    private final Runnable hideSettingsTask = this::hideSettingsButton;
+    private final Runnable idleTask = () -> {
+        if (able == null || !ui.getBoolean("able_idle", true)) return;
+        if (!able.openPlayer()) showToast("AbleSign غير مثبت على الجهاز");
+    };
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setSystemUiVisibility(5894);
-        able=new AbleSignController(this);
-        ui=getSharedPreferences("ui",0);
+        able = new AbleSignController(this);
+        ui = getSharedPreferences("ui", 0);
         buildUi();
         restoreOrPair();
     }
 
-    private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
-    private TextView text(String s,int sp,int c){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(c);t.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);t.setPadding(dp(8),dp(6),dp(8),dp(6));return t;}
-    private GradientDrawable round(int color,float radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp((int)radius));return g;}
-    private GradientDrawable strokeBg(int color,int strokeColor,float radius){GradientDrawable g=round(color,radius);g.setStroke(dp(1),strokeColor);return g;}
-    private Button action(String label,boolean primary){
-        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(16);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setMinHeight(dp(54));b.setPadding(dp(18),0,dp(18),0);b.setTextColor(primary?Color.WHITE:accent);b.setBackground(primary?round(accent,18):strokeBg(Color.WHITE,0xFFE4E1E8,18));return b;
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) showSettingsButton();
+        return super.dispatchTouchEvent(event);
     }
 
-    private void buildUi(){
-        try{accent=Color.parseColor(ui.getString("color","#5B2A86"));}catch(Exception ignored){accent=Color.rgb(91,42,134);}
-        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(26),dp(18),dp(26),dp(14));
-        GradientDrawable page=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xFFF7F5FA,0xFFFFFFFF});root.setBackground(page);
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
 
-        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(dp(4),0,dp(4),dp(10));
-        LinearLayout brand=new LinearLayout(this);brand.setOrientation(LinearLayout.HORIZONTAL);brand.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView techIcon=new ImageView(this);techIcon.setImageResource(R.drawable.ic_techlight);brand.addView(techIcon,new LinearLayout.LayoutParams(dp(46),dp(46)));
-        LinearLayout brandText=new LinearLayout(this);brandText.setOrientation(LinearLayout.VERTICAL);brandText.setPadding(dp(10),0,0,0);
-        TextView company=text("ضوء التقنية",19,0xFF222127);company.setTypeface(Typeface.DEFAULT,Typeface.BOLD);company.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);brandText.addView(company);
-        TextView product=text("شاشة العميل الذكية",12,0xFF85818B);product.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);brandText.addView(product);brand.addView(brandText);
-        top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
+    private TextView text(String value, int sp, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        view.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        view.setPadding(dp(8), dp(6), dp(8), dp(6));
+        return view;
+    }
 
-        LinearLayout live=new LinearLayout(this);live.setOrientation(LinearLayout.HORIZONTAL);live.setGravity(Gravity.CENTER);live.setPadding(dp(14),dp(7),dp(14),dp(7));live.setBackground(round(0xFFF1EDF6,18));
-        statusDot=text("●",12,accent);statusDot.setPadding(0,0,dp(5),0);live.addView(statusDot);status=text("جاهز",13,0xFF514C58);status.setGravity(Gravity.CENTER);status.setPadding(0,0,0,0);live.addView(status);top.addView(live);
+    private GradientDrawable round(int color, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radius));
+        return drawable;
+    }
 
-        Button settingsBtn=action("⚙",false);settingsBtn.setTextSize(21);settingsBtn.setMinWidth(dp(56));settingsBtn.setPadding(0,0,0,0);settingsBtn.setOnClickListener(v->startActivityForResult(new Intent(this,SettingsActivity.class),SETTINGS_REQ));
-        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(dp(58),dp(52));sp.setMargins(dp(10),0,0,0);top.addView(settingsBtn,sp);
+    private GradientDrawable strokeBg(int color, int strokeColor, int radius) {
+        GradientDrawable drawable = round(color, radius);
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
+    }
+
+    private Drawable pressable(int color, int strokeColor, int radius, int rippleColor) {
+        return new RippleDrawable(
+                ColorStateList.valueOf(rippleColor),
+                strokeBg(color, strokeColor, radius),
+                null
+        );
+    }
+
+    private TextView action(String label, int iconRes, boolean primary) {
+        TextView button = text(label, compact ? 14 : 16, primary ? Color.WHITE : accent);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(dp(58));
+        button.setPadding(dp(18), 0, dp(18), 0);
+        button.setCompoundDrawablePadding(dp(10));
+        button.setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0);
+        Drawable icon = button.getCompoundDrawablesRelative()[0];
+        if (icon != null) icon.mutate().setTint(primary ? Color.WHITE : accent);
+        button.setBackground(primary
+                ? pressable(accent, accent, 18, 0x33FFFFFF)
+                : pressable(Color.WHITE, 0xFFE2DDE7, 18, 0x185B2A86));
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setElevation(dp(2));
+        return button;
+    }
+
+    private void buildUi() {
+        handler.removeCallbacks(hideSettingsTask);
+        paired = getSharedPreferences("pair", 0).contains("ip");
+        int widthDp = getResources().getConfiguration().screenWidthDp;
+        int heightDp = getResources().getConfiguration().screenHeightDp;
+        compact = widthDp < 700 || heightDp > widthDp;
+        try {
+            accent = Color.parseColor(ui.getString("color", "#5B2A86"));
+        } catch (Exception ignored) {
+            accent = Color.rgb(91, 42, 134);
+        }
+
+        shell = new FrameLayout(this);
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        root.setPadding(dp(compact ? 14 : 26), dp(compact ? 12 : 18), dp(compact ? 14 : 26), dp(12));
+        GradientDrawable page = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFFF7F5FA, 0xFFFFFFFF}
+        );
+        root.setBackground(page);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(4), 0, dp(4), dp(8));
+
+        if (!paired) {
+            LinearLayout brand = new LinearLayout(this);
+            brand.setOrientation(LinearLayout.HORIZONTAL);
+            brand.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView techIcon = new ImageView(this);
+            techIcon.setImageResource(R.drawable.ic_techlight);
+            brand.addView(techIcon, new LinearLayout.LayoutParams(dp(compact ? 38 : 46), dp(compact ? 38 : 46)));
+            LinearLayout brandText = new LinearLayout(this);
+            brandText.setOrientation(LinearLayout.VERTICAL);
+            brandText.setPadding(dp(9), 0, 0, 0);
+            TextView company = text("ضوء التقنية", compact ? 16 : 19, 0xFF222127);
+            company.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            company.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            brandText.addView(company);
+            if (!compact) {
+                TextView product = text("شاشة العميل الذكية", 12, 0xFF85818B);
+                product.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+                brandText.addView(product);
+            }
+            brand.addView(brandText);
+            top.addView(brand, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        } else {
+            TextView screenName = text("شاشة الطلب", compact ? 13 : 15, 0xFF7C7680);
+            screenName.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            top.addView(screenName, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        }
+
+        LinearLayout live = new LinearLayout(this);
+        live.setOrientation(LinearLayout.HORIZONTAL);
+        live.setGravity(Gravity.CENTER);
+        live.setPadding(dp(compact ? 10 : 14), dp(7), dp(compact ? 10 : 14), dp(7));
+        live.setBackground(round(0xFFF1EDF6, 18));
+        statusDot = text("●", 12, accent);
+        statusDot.setPadding(0, 0, dp(5), 0);
+        live.addView(statusDot);
+        status = text("جاهز", compact ? 12 : 13, 0xFF514C58);
+        status.setGravity(Gravity.CENTER);
+        status.setPadding(0, 0, 0, 0);
+        live.addView(status);
+        top.addView(live);
         root.addView(top);
 
-        title=text(ui.getString("welcome","أهلًا وسهلًا بك"),29,0xFF242128);title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);title.setGravity(Gravity.RIGHT);title.setPadding(dp(8),dp(4),dp(8),dp(8));root.addView(title);
+        title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 29, 0xFF242128);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        title.setPadding(dp(8), dp(2), dp(8), dp(compact ? 5 : 8));
+        root.addView(title);
 
-        body=new LinearLayout(this);body.setOrientation(LinearLayout.HORIZONTAL);body.setGravity(Gravity.CENTER);root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
+        body = new LinearLayout(this);
+        body.setGravity(Gravity.CENTER);
+        root.addView(body, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+        ));
         buildTemplate();
 
-        footer=text(ui.getString("footer","نسعد بخدمتكم دائمًا"),13,0xFF8A858F);footer.setGravity(Gravity.CENTER);footer.setPadding(dp(8),dp(8),dp(8),0);root.addView(footer);
-        setContentView(root);
+        TextView footer = text(ui.getString("footer", "نسعد بخدمتكم دائمًا"), compact ? 11 : 13, 0xFF8A858F);
+        footer.setGravity(Gravity.CENTER);
+        footer.setPadding(dp(8), dp(7), dp(8), 0);
+        root.addView(footer);
+
+        shell.addView(root, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        addHiddenSettingsButton();
+        setContentView(shell);
         animateEntrance();
     }
 
-    private void animateEntrance(){
-        root.setAlpha(0f);root.setTranslationY(dp(10));root.animate().alpha(1f).translationY(0).setDuration(420).setInterpolator(new DecelerateInterpolator()).start();
-        title.setAlpha(0f);title.animate().alpha(1f).setStartDelay(180).setDuration(450).start();
+    private void addHiddenSettingsButton() {
+        settingsPill = text("الإعدادات", 14, accent);
+        settingsPill.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        settingsPill.setGravity(Gravity.CENTER);
+        settingsPill.setPadding(dp(16), dp(9), dp(16), dp(9));
+        settingsPill.setCompoundDrawablePadding(dp(8));
+        settingsPill.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_settings, 0, 0, 0);
+        Drawable settingsIcon = settingsPill.getCompoundDrawablesRelative()[0];
+        if (settingsIcon != null) settingsIcon.mutate().setTint(accent);
+        settingsPill.setBackground(pressable(Color.WHITE, 0xFFE0DAE5, 20, 0x185B2A86));
+        settingsPill.setElevation(dp(10));
+        settingsPill.setVisibility(View.GONE);
+        settingsPill.setOnClickListener(view -> {
+            handler.removeCallbacks(hideSettingsTask);
+            hideSettingsButton();
+            startActivityForResult(new Intent(this, SettingsActivity.class), SETTINGS_REQ);
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(48),
+                Gravity.TOP | Gravity.START
+        );
+        params.setMargins(dp(16), dp(14), dp(16), 0);
+        shell.addView(settingsPill, params);
     }
 
-    private void buildTemplate(){
-        body.removeAllViews();int template=ui.getInt("template",0);
-        LinearLayout orderCard=new LinearLayout(this);orderCard.setOrientation(LinearLayout.VERTICAL);orderCard.setPadding(dp(22),dp(18),dp(22),dp(18));orderCard.setBackground(strokeBg(Color.WHITE,0xFFEAE7ED,24));
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView orderLabel=text("تفاصيل الطلب",18,0xFF353039);orderLabel.setTypeface(Typeface.DEFAULT,Typeface.BOLD);header.addView(orderLabel,new LinearLayout.LayoutParams(0,-2,1));
-        TextView liveBadge=text("مباشر",12,accent);liveBadge.setGravity(Gravity.CENTER);liveBadge.setBackground(round(0xFFF3EDF8,16));liveBadge.setPadding(dp(11),dp(5),dp(11),dp(5));header.addView(liveBadge);orderCard.addView(header);
-        View divider=new View(this);divider.setBackgroundColor(0xFFF0EDF2);LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(-1,dp(1));dpv.setMargins(0,dp(12),0,dp(8));orderCard.addView(divider,dpv);
-        orderList=new LinearLayout(this);orderList.setOrientation(LinearLayout.VERTICAL);ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(orderList);orderCard.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-
-        LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);summary.setGravity(Gravity.CENTER);summary.setPadding(dp(26),dp(26),dp(26),dp(26));
-        GradientDrawable sumBg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{lighten(accent,0.90f),0xFFFFFFFF});sumBg.setCornerRadius(dp(24));summary.setBackground(sumBg);
-        logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);String u=ui.getString("logo",null);if(u!=null)try{logo.setImageURI(Uri.parse(u));}catch(Exception ignored){logo.setImageResource(R.drawable.ic_techlight);}else logo.setImageResource(R.drawable.ic_techlight);summary.addView(logo,new LinearLayout.LayoutParams(dp(150),dp(100)));
-        TextView totalLabel=text("إجمالي طلبك",17,0xFF605968);totalLabel.setGravity(Gravity.CENTER);summary.addView(totalLabel);
-        total=text("0.00 ر.س",45,accent);total.setTypeface(Typeface.DEFAULT,Typeface.BOLD);total.setGravity(Gravity.CENTER);total.setPadding(0,dp(4),0,dp(8));summary.addView(total);
-        TextView safe=text("يتم تحديث الطلب فورًا من الكاشير",13,0xFF8D8792);safe.setGravity(Gravity.CENTER);summary.addView(safe);
-
-        if(template==1){body.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams a=new LinearLayout.LayoutParams(-1,0,2);a.setMargins(0,0,0,dp(12));body.addView(orderCard,a);body.addView(summary,new LinearLayout.LayoutParams(-1,0,1));}
-        else if(template==2){body.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams s=new LinearLayout.LayoutParams(0,-1,1);s.setMargins(0,0,dp(12),0);body.addView(summary,s);body.addView(orderCard,new LinearLayout.LayoutParams(0,-1,2));}
-        else {LinearLayout.LayoutParams o=new LinearLayout.LayoutParams(0,-1,3);o.setMargins(0,0,dp(14),0);body.addView(orderCard,o);body.addView(summary,new LinearLayout.LayoutParams(0,-1,2));}
-        showEmptyOrder("بانتظار أول طلب","سيظهر الطلب هنا مباشرة عند إضافة صنف من الكاشير");
+    private void showSettingsButton() {
+        if (settingsPill == null) return;
+        handler.removeCallbacks(hideSettingsTask);
+        if (settingsPill.getVisibility() != View.VISIBLE) {
+            settingsPill.setVisibility(View.VISIBLE);
+            settingsPill.setAlpha(0f);
+            settingsPill.setTranslationY(-dp(12));
+            settingsPill.animate()
+                    .alpha(1f)
+                    .translationY(0)
+                    .setDuration(220)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .start();
+        }
+        handler.postDelayed(hideSettingsTask, SETTINGS_VISIBLE_MS);
     }
 
-    private int lighten(int color,float factor){int r=Color.red(color),g=Color.green(color),b=Color.blue(color);r=(int)(r+(255-r)*factor);g=(int)(g+(255-g)*factor);b=(int)(b+(255-b)*factor);return Color.rgb(Math.min(255,r),Math.min(255,g),Math.min(255,b));}
+    private void hideSettingsButton() {
+        if (settingsPill == null || settingsPill.getVisibility() != View.VISIBLE) return;
+        settingsPill.animate().alpha(0f).translationY(-dp(10)).setDuration(170)
+                .withEndAction(() -> {
+                    if (settingsPill != null) settingsPill.setVisibility(View.GONE);
+                }).start();
+    }
 
-    private void showEmptyOrder(String heading,String sub){
-        orderList.removeAllViews();LinearLayout empty=new LinearLayout(this);empty.setOrientation(LinearLayout.VERTICAL);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(30),dp(28),dp(30),dp(28));
-        TextView icon=text("✦",36,accent);icon.setGravity(Gravity.CENTER);empty.addView(icon);
-        emptyTitle=text(heading,22,0xFF38323B);emptyTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);emptyTitle.setGravity(Gravity.CENTER);empty.addView(emptyTitle);
-        emptySub=text(sub,14,0xFF8B858F);emptySub.setGravity(Gravity.CENTER);empty.addView(emptySub);
-        orderList.addView(empty,new LinearLayout.LayoutParams(-1,-1));
+    private void animateEntrance() {
+        root.setAlpha(0f);
+        root.setTranslationY(dp(10));
+        root.animate().alpha(1f).translationY(0).setDuration(420)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        title.setAlpha(0f);
+        title.animate().alpha(1f).setStartDelay(160).setDuration(420).start();
+    }
+
+    private void buildTemplate() {
+        body.removeAllViews();
+        int template = ui.getInt("template", 0);
+
+        LinearLayout orderCard = new LinearLayout(this);
+        orderCard.setOrientation(LinearLayout.VERTICAL);
+        orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 12 : 18), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
+        orderCard.setBackground(strokeBg(Color.WHITE, 0xFFEAE7ED, 24));
+        orderCard.setElevation(dp(1));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView orderLabel = text("تفاصيل الطلب", compact ? 16 : 18, 0xFF353039);
+        orderLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView liveBadge = text("مباشر", 12, accent);
+        liveBadge.setGravity(Gravity.CENTER);
+        liveBadge.setBackground(round(lighten(accent, 0.91f), 16));
+        liveBadge.setPadding(dp(11), dp(5), dp(11), dp(5));
+        header.addView(liveBadge);
+        orderCard.addView(header);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFF0EDF2);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
+        );
+        dividerParams.setMargins(0, dp(10), 0, dp(7));
+        orderCard.addView(divider, dividerParams);
+
+        orderList = new LinearLayout(this);
+        orderList.setOrientation(LinearLayout.VERTICAL);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.addView(orderList);
+        orderCard.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+        ));
+
+        LinearLayout summary = new LinearLayout(this);
+        summary.setOrientation(LinearLayout.VERTICAL);
+        summary.setGravity(Gravity.CENTER);
+        summary.setPadding(dp(compact ? 18 : 26), dp(compact ? 16 : 26), dp(compact ? 18 : 26), dp(compact ? 16 : 26));
+        GradientDrawable summaryBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{lighten(accent, 0.90f), 0xFFFFFFFF}
+        );
+        summaryBg.setCornerRadius(dp(24));
+        summary.setBackground(summaryBg);
+        summary.setElevation(dp(1));
+
+        addCustomerLogo(summary);
+        TextView totalLabel = text("إجمالي طلبك", compact ? 15 : 17, 0xFF605968);
+        totalLabel.setGravity(Gravity.CENTER);
+        summary.addView(totalLabel);
+        total = text("0.00 ر.س", compact ? 32 : 45, accent);
+        total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        total.setGravity(Gravity.CENTER);
+        total.setPadding(0, dp(3), 0, dp(6));
+        summary.addView(total);
+        TextView safe = text("يتحدث الطلب فورًا من الكاشير", compact ? 11 : 13, 0xFF8D8792);
+        safe.setGravity(Gravity.CENTER);
+        summary.addView(safe);
+
+        if (compact) {
+            body.setOrientation(LinearLayout.VERTICAL);
+            if (template == 2) {
+                LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+                );
+                summaryParams.setMargins(0, 0, 0, dp(10));
+                body.addView(summary, summaryParams);
+                body.addView(orderCard, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
+                ));
+            } else {
+                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
+                );
+                orderParams.setMargins(0, 0, 0, dp(10));
+                body.addView(orderCard, orderParams);
+                body.addView(summary, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+                ));
+            }
+        } else if (template == 1) {
+            body.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
+            );
+            orderParams.setMargins(0, 0, 0, dp(12));
+            body.addView(orderCard, orderParams);
+            body.addView(summary, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+            ));
+        } else {
+            body.setOrientation(LinearLayout.HORIZONTAL);
+            if (template == 2) {
+                LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+                summaryParams.setMargins(0, 0, dp(12), 0);
+                body.addView(summary, summaryParams);
+                body.addView(orderCard, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
+            } else {
+                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 3);
+                orderParams.setMargins(0, 0, dp(14), 0);
+                body.addView(orderCard, orderParams);
+                body.addView(summary, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
+            }
+        }
+        showEmptyOrder("بانتظار أول طلب", "سيظهر الطلب هنا مباشرة عند إضافة صنف من الكاشير");
+    }
+
+    private void addCustomerLogo(LinearLayout summary) {
+        String logoUri = ui.getString("logo", null);
+        if (logoUri != null && !logoUri.trim().isEmpty()) {
+            ImageView customerLogo = new ImageView(this);
+            customerLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            try {
+                customerLogo.setImageURI(Uri.parse(logoUri));
+                if (customerLogo.getDrawable() != null) {
+                    summary.addView(customerLogo, new LinearLayout.LayoutParams(dp(compact ? 100 : 150), dp(compact ? 62 : 100)));
+                    return;
+                }
+            } catch (Exception ignored) {
+                // A neutral store mark is used below. TechLight branding never leaks into the customer view.
+            }
+        }
+        ImageView store = new ImageView(this);
+        store.setImageResource(R.drawable.ic_store);
+        store.setImageTintList(ColorStateList.valueOf(accent));
+        store.setPadding(dp(13), dp(13), dp(13), dp(13));
+        store.setBackground(round(lighten(accent, 0.86f), 22));
+        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(compact ? 54 : 66), dp(compact ? 54 : 66));
+        markParams.setMargins(0, 0, 0, dp(8));
+        summary.addView(store, markParams);
+    }
+
+    private int lighten(int color, float factor) {
+        int red = Color.red(color);
+        int green = Color.green(color);
+        int blue = Color.blue(color);
+        red = (int) (red + (255 - red) * factor);
+        green = (int) (green + (255 - green) * factor);
+        blue = (int) (blue + (255 - blue) * factor);
+        return Color.rgb(Math.min(255, red), Math.min(255, green), Math.min(255, blue));
+    }
+
+    private void showEmptyOrder(String heading, String subheading) {
+        if (orderList == null) return;
+        orderList.removeAllViews();
+        LinearLayout empty = new LinearLayout(this);
+        empty.setOrientation(LinearLayout.VERTICAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(24), dp(compact ? 18 : 28), dp(24), dp(compact ? 18 : 28));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_order);
+        icon.setImageTintList(ColorStateList.valueOf(accent));
+        icon.setPadding(dp(10), dp(10), dp(10), dp(10));
+        icon.setBackground(round(lighten(accent, 0.90f), 20));
+        empty.addView(icon, new LinearLayout.LayoutParams(dp(compact ? 52 : 64), dp(compact ? 52 : 64)));
+        TextView emptyTitle = text(heading, compact ? 18 : 22, 0xFF38323B);
+        emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        emptyTitle.setGravity(Gravity.CENTER);
+        emptyTitle.setPadding(dp(8), dp(8), dp(8), dp(3));
+        empty.addView(emptyTitle);
+        TextView emptySub = text(subheading, compact ? 12 : 14, 0xFF8B858F);
+        emptySub.setGravity(Gravity.CENTER);
+        empty.addView(emptySub);
+        orderList.addView(empty, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+        ));
         pulse(icon);
     }
 
-    private void pulse(View v){AlphaAnimation a=new AlphaAnimation(0.35f,1f);a.setDuration(900);a.setRepeatMode(Animation.REVERSE);a.setRepeatCount(Animation.INFINITE);v.startAnimation(a);}
-
-    private void restoreOrPair(){SharedPreferences p=getSharedPreferences("pair",0);String ip=p.getString("ip",null);int port=p.getInt("port",4040);if(ip!=null){connect(ip,port);return;}showPairingPanel();}
-
-    private void showPairingPanel(){
-        handler.removeCallbacks(idleTask);orderList.removeAllViews();
-        LinearLayout wrap=new LinearLayout(this);wrap.setOrientation(LinearLayout.VERTICAL);wrap.setGravity(Gravity.CENTER);wrap.setPadding(dp(26),dp(20),dp(26),dp(20));
-        TextView scanIcon=text("⌗",42,accent);scanIcon.setGravity(Gravity.CENTER);wrap.addView(scanIcon);pulse(scanIcon);
-        TextView h=text("اربط شاشة العميل",24,0xFF302B33);h.setTypeface(Typeface.DEFAULT,Typeface.BOLD);h.setGravity(Gravity.CENTER);wrap.addView(h);
-        TextView d=text("افتح Tech Pro على جهاز الكاشير واعرض QR الاقتران، ثم امسحه هنا.",15,0xFF77717C);d.setGravity(Gravity.CENTER);d.setPadding(dp(20),dp(4),dp(20),dp(18));wrap.addView(d);
-        Button scan=action("مسح QR بالكاميرا",true);scan.setOnClickListener(v->prepareCamera());wrap.addView(scan,new LinearLayout.LayoutParams(-1,dp(58)));
-        TextView alt=text("أو",12,0xFF9A949E);alt.setGravity(Gravity.CENTER);wrap.addView(alt);
-        Button manual=action("إدخال IP والمنفذ يدويًا",false);manual.setOnClickListener(v->manualPair());wrap.addView(manual,new LinearLayout.LayoutParams(-1,dp(58)));
-        orderList.addView(wrap,new LinearLayout.LayoutParams(-1,-1));setConnectionState("غير مرتبط",false);
+    private void pulse(View view) {
+        AlphaAnimation animation = new AlphaAnimation(0.55f, 1f);
+        animation.setDuration(950);
+        animation.setRepeatMode(Animation.REVERSE);
+        animation.setRepeatCount(Animation.INFINITE);
+        view.startAnimation(animation);
     }
 
-    private void prepareCamera(){
-        if(!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)){
-            new AlertDialog.Builder(this).setTitle("لا توجد كاميرا في هذا الجهاز").setMessage("هذا الجهاز لا يحتوي على كاميرا. استخدم الإدخال اليدوي للـ IP والمنفذ، أو استخدم جهازًا يحتوي على كاميرا لمسح QR.").setPositiveButton("إدخال يدوي",(d,w)->manualPair()).setNegativeButton("إلغاء",null).show();return;
+    private void animatePairingIcon(View view) {
+        ObjectAnimator animator = ObjectAnimator.ofFloat(view, View.ROTATION, -4f, 4f);
+        animator.setDuration(700);
+        animator.setRepeatMode(ObjectAnimator.REVERSE);
+        animator.setRepeatCount(ObjectAnimator.INFINITE);
+        animator.start();
+    }
+
+    private void restoreOrPair() {
+        SharedPreferences pair = getSharedPreferences("pair", 0);
+        String ip = pair.getString("ip", null);
+        int port = pair.getInt("port", 4040);
+        if (ip != null) {
+            connect(ip, port);
+            return;
         }
-        if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA_REQ);return;}
+        showPairingPanel();
+    }
+
+    private void showPairingPanel() {
+        handler.removeCallbacks(idleTask);
+        if (client != null) {
+            client.stop();
+            client = null;
+        }
+        body.removeAllViews();
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(compact ? 4 : 34), dp(4), dp(compact ? 4 : 34), dp(4));
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        card.setPadding(dp(compact ? 20 : 40), dp(compact ? 18 : 28), dp(compact ? 20 : 40), dp(compact ? 18 : 28));
+        card.setBackground(strokeBg(Color.WHITE, 0xFFE7E1EB, 28));
+        card.setElevation(dp(3));
+
+        ImageView scanIcon = new ImageView(this);
+        scanIcon.setImageResource(R.drawable.ic_scan_qr);
+        scanIcon.setImageTintList(ColorStateList.valueOf(accent));
+        scanIcon.setPadding(dp(15), dp(15), dp(15), dp(15));
+        scanIcon.setBackground(round(lighten(accent, 0.88f), 24));
+        card.addView(scanIcon, new LinearLayout.LayoutParams(dp(compact ? 72 : 90), dp(compact ? 72 : 90)));
+        animatePairingIcon(scanIcon);
+
+        TextView heading = text("اربط شاشة العميل", compact ? 22 : 27, 0xFF302B33);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setGravity(Gravity.CENTER);
+        heading.setPadding(dp(8), dp(10), dp(8), dp(2));
+        card.addView(heading);
+        TextView detail = text("اعرض QR الاقتران من Tech Pro ثم امسحه بكاميرا هذا الجهاز.", compact ? 13 : 15, 0xFF77717C);
+        detail.setGravity(Gravity.CENTER);
+        detail.setPadding(dp(16), dp(2), dp(16), dp(15));
+        card.addView(detail);
+
+        TextView scan = action("فتح الكاميرا ومسح QR", R.drawable.ic_scan_qr, true);
+        scan.setOnClickListener(view -> prepareCamera());
+        card.addView(scan, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)));
+
+        TextView alternative = text("أو استخدم الربط اليدوي", 12, 0xFF9A949E);
+        alternative.setGravity(Gravity.CENTER);
+        alternative.setPadding(dp(8), dp(6), dp(8), dp(6));
+        card.addView(alternative);
+
+        TextView manual = action("إدخال IP والمنفذ", R.drawable.ic_keyboard, false);
+        manual.setOnClickListener(view -> manualPair());
+        card.addView(manual, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+
+        body.addView(card, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+        ));
+        setConnectionState("غير مرتبط", false);
+    }
+
+    private void prepareCamera() {
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("تعذّر العثور على الكاميرا")
+                    .setMessage("لم يتعرّف Android على كاميرا في هذا الجهاز. استخدم إدخال IP والمنفذ لإتمام الربط.")
+                    .setPositiveButton("إدخال يدوي", (dialog, which) -> manualPair())
+                    .setNegativeButton("إلغاء", null)
+                    .show();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
+            return;
+        }
         launchScanner();
     }
 
-    private void launchScanner(){
-        IntentIntegrator in=new IntentIntegrator(this);in.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);in.setPrompt("وجّه الكاميرا إلى QR الاقتران في Tech Pro");in.setBeepEnabled(true);in.setOrientationLocked(false);in.setCameraId(0);in.initiateScan();
+    private void launchScanner() {
+        IntentIntegrator integrator = new IntentIntegrator(this);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+        integrator.setPrompt("وجّه الكاميرا إلى QR الاقتران في Tech Pro");
+        integrator.setBeepEnabled(true);
+        integrator.setBarcodeImageEnabled(false);
+        integrator.setOrientationLocked(false);
+        integrator.setCameraId(0);
+        integrator.initiateScan();
     }
 
-    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==CAMERA_REQ){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)launchScanner();else new AlertDialog.Builder(this).setTitle("صلاحية الكاميرا مطلوبة").setMessage("فعّل صلاحية الكاميرا حتى يستطيع التطبيق مسح QR.").setPositiveButton("فتح إعدادات التطبيق",(d,w)->{Intent i=new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()));startActivity(i);}).setNegativeButton("إلغاء",null).show();}}
-
-    private void manualPair(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(24),0,dp(24),0);
-        EditText ip=new EditText(this);ip.setHint("IP مثال: 192.168.100.23");ip.setSingleLine(true);form.addView(ip);
-        EditText port=new EditText(this);port.setHint("Port مثال: 4040");port.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);port.setSingleLine(true);port.setText("4040");form.addView(port);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("إدخال بيانات Tech Pro").setView(form).setPositiveButton("ربط",null).setNegativeButton("إلغاء",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String ipv=ip.getText().toString().trim();String pv=port.getText().toString().trim();if(ipv.isEmpty()){ip.setError("اكتب IP");return;}try{int p=Integer.parseInt(pv);savePair(ipv,p);dialog.dismiss();}catch(Exception e){port.setError("منفذ غير صحيح");}}));dialog.show();
-    }
-
-    private void pairText(String raw){try{PairingParser.PairingInfo pi=PairingParser.parse(raw);savePair(pi.ip,pi.port);}catch(Exception e){showToast("QR غير صحيح أو لا يخص Tech Pro");showPairingPanel();}}
-    private void savePair(String ip,int port){getSharedPreferences("pair",0).edit().putString("ip",ip).putInt("port",port).apply();connect(ip,port);}
-
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);IntentResult qr=IntentIntegrator.parseActivityResult(request,result,data);if(qr!=null){if(qr.getContents()!=null)pairText(qr.getContents());return;}if(request==SETTINGS_REQ){buildUi();restoreOrPair();}
-    }
-
-    private void connect(String ip,int port){setConnectionState("جارٍ الاتصال",false);showEmptyOrder("جارٍ الاتصال بـ Tech Pro",ip+":"+port);if(client!=null)client.stop();client=new TechProClient(ip,port,this);client.start();}
-    private void setConnectionState(String text,boolean ok){status.setText(text);statusDot.setTextColor(ok?0xFF159A63:accent);}
-    private void showToast(String s){runOnUiThread(()->Toast.makeText(this,s,Toast.LENGTH_LONG).show());}
-
-    @Override public void onConnected(){runOnUiThread(()->{setConnectionState("متصل",true);showEmptyOrder("متصل وجاهز","بانتظار إضافة أصناف من جهاز الكاشير");scheduleIdle(5000);});}
-    @Override public void onDisconnected(String reason){runOnUiThread(()->{setConnectionState("إعادة الاتصال",false);if(orderList.getChildCount()==0)showEmptyOrder("جارٍ إعادة الاتصال","تأكد أن الجهازين على نفس شبكة الواي فاي");});}
-    @Override public void onRaw(String raw){}
-
-    @Override public void onOrder(OrderState o){runOnUiThread(()->{
-        handler.removeCallbacks(idleTask);orderList.removeAllViews();
-        if(o.items==null||o.items.isEmpty()){showEmptyOrder("طلب جديد","بانتظار إضافة الأصناف");}
-        else{
-            for(OrderState.Item i:o.items){
-                LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(12),dp(10));row.setBackground(round(0xFFF9F8FA,14));
-                TextView qty=text("× "+i.qty,15,accent);qty.setTypeface(Typeface.DEFAULT,Typeface.BOLD);qty.setGravity(Gravity.CENTER);qty.setBackground(round(lighten(accent,0.92f),12));qty.setPadding(dp(10),dp(5),dp(10),dp(5));
-                TextView name=text(i.name,20,0xFF2D2930);name.setTypeface(Typeface.DEFAULT,Typeface.BOLD);name.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
-                TextView price=text(String.format(Locale.US,"%.2f ر.س",i.total()),19,0xFF57515B);price.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);
-                row.addView(price,new LinearLayout.LayoutParams(dp(170),-2));row.addView(name,new LinearLayout.LayoutParams(0,-2,1));row.addView(qty);
-                LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.setMargins(0,dp(4),0,dp(4));orderList.addView(row,rp);row.setAlpha(0f);row.setTranslationX(dp(20));row.animate().alpha(1f).translationX(0).setDuration(250).start();
-            }
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != CAMERA_REQ) return;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            launchScanner();
+            return;
         }
-        total.setText(String.format(Locale.US,"%.2f ر.س",o.total));total.setScaleX(0.94f);total.setScaleY(0.94f);total.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
-        if(o.completed){setConnectionState(ui.getString("thanks","شكرًا لزيارتكم"),true);scheduleIdle(7000);}else setConnectionState("الطلب مباشر",true);
-    });}
+        new AlertDialog.Builder(this)
+                .setTitle("صلاحية الكاميرا مطلوبة")
+                .setMessage("فعّل صلاحية الكاميرا حتى يستطيع التطبيق مسح QR.")
+                .setPositiveButton("فتح إعدادات التطبيق", (dialog, which) -> {
+                    Intent intent = new Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getPackageName())
+                    );
+                    startActivity(intent);
+                })
+                .setNegativeButton("إلغاء", null)
+                .show();
+    }
 
-    private void scheduleIdle(long ms){handler.removeCallbacks(idleTask);handler.postDelayed(idleTask,ms);}
-    @Override protected void onDestroy(){if(client!=null)client.stop();handler.removeCallbacksAndMessages(null);super.onDestroy();}
+    private void manualPair() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(24), 0, dp(24), 0);
+        EditText ip = new EditText(this);
+        ip.setHint("IP مثال: 192.168.100.23");
+        ip.setSingleLine(true);
+        form.addView(ip);
+        EditText port = new EditText(this);
+        port.setHint("Port مثال: 4040");
+        port.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        port.setSingleLine(true);
+        port.setText("4040");
+        form.addView(port);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("بيانات الربط مع Tech Pro")
+                .setView(form)
+                .setPositiveButton("ربط", null)
+                .setNegativeButton("إلغاء", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String ipValue = ip.getText().toString().trim();
+            String portValue = port.getText().toString().trim();
+            if (ipValue.isEmpty()) {
+                ip.setError("اكتب IP");
+                return;
+            }
+            try {
+                int portNumber = Integer.parseInt(portValue);
+                if (portNumber < 1 || portNumber > 65535) throw new NumberFormatException();
+                savePair(ipValue, portNumber);
+                dialog.dismiss();
+            } catch (Exception error) {
+                port.setError("منفذ غير صحيح");
+            }
+        }));
+        dialog.show();
+    }
+
+    private void pairText(String raw) {
+        try {
+            PairingParser.PairingInfo pairing = PairingParser.parse(raw);
+            savePair(pairing.ip, pairing.port);
+        } catch (Exception error) {
+            showToast("QR غير صحيح أو لا يخص Tech Pro");
+            showPairingPanel();
+        }
+    }
+
+    private void savePair(String ip, int port) {
+        getSharedPreferences("pair", 0).edit()
+                .putString("ip", ip)
+                .putInt("port", port)
+                .apply();
+        buildUi();
+        connect(ip, port);
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        IntentResult qr = IntentIntegrator.parseActivityResult(request, result, data);
+        if (qr != null) {
+            if (qr.getContents() != null) pairText(qr.getContents());
+            return;
+        }
+        if (request == SETTINGS_REQ) {
+            buildUi();
+            restoreOrPair();
+        }
+    }
+
+    private void connect(String ip, int port) {
+        setConnectionState("جارٍ الاتصال", false);
+        showEmptyOrder("جارٍ الاتصال بـ Tech Pro", ip + ":" + port);
+        if (client != null) client.stop();
+        client = new TechProClient(ip, port, this);
+        client.start();
+    }
+
+    private void setConnectionState(String value, boolean ok) {
+        if (status == null || statusDot == null) return;
+        status.setText(value);
+        statusDot.setTextColor(ok ? 0xFF159A63 : accent);
+    }
+
+    private void showToast(String value) {
+        runOnUiThread(() -> Toast.makeText(this, value, Toast.LENGTH_LONG).show());
+    }
+
+    @Override public void onConnected() {
+        runOnUiThread(() -> {
+            setConnectionState("متصل", true);
+            showEmptyOrder("متصل وجاهز", "بانتظار إضافة أصناف من جهاز الكاشير");
+            scheduleIdle(5000);
+        });
+    }
+
+    @Override public void onDisconnected(String reason) {
+        runOnUiThread(() -> {
+            setConnectionState("إعادة الاتصال", false);
+            showEmptyOrder("جارٍ إعادة الاتصال", "تأكد أن الجهازين على نفس شبكة الواي فاي");
+        });
+    }
+
+    @Override public void onRaw(String raw) {
+        // Reserved for future Tech Pro events that are not order updates.
+    }
+
+    @Override public void onOrder(OrderState order) {
+        runOnUiThread(() -> {
+            if (!paired) return;
+            bringCustomerDisplayForward();
+            handler.removeCallbacks(idleTask);
+            orderList.removeAllViews();
+            if (order.items == null || order.items.isEmpty()) {
+                showEmptyOrder("طلب جديد", "بانتظار إضافة الأصناف");
+                scheduleIdle(5000);
+            } else {
+                for (OrderState.Item item : order.items) addOrderRow(item);
+            }
+            total.setText(String.format(Locale.US, "%.2f ر.س", order.total));
+            total.setScaleX(0.93f);
+            total.setScaleY(0.93f);
+            total.animate().scaleX(1f).scaleY(1f).setDuration(190).start();
+            if (order.completed) {
+                setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
+                scheduleIdle(7000);
+            } else {
+                setConnectionState("الطلب مباشر", true);
+            }
+        });
+    }
+
+    private void bringCustomerDisplayForward() {
+        if (hasWindowFocus()) return;
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+    }
+
+    private void addOrderRow(OrderState.Item item) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(compact ? 8 : 12), dp(compact ? 7 : 10), dp(compact ? 8 : 12), dp(compact ? 7 : 10));
+        row.setBackground(round(0xFFF9F8FA, 14));
+
+        TextView qty = text("× " + item.qty, compact ? 13 : 15, accent);
+        qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        qty.setGravity(Gravity.CENTER);
+        qty.setBackground(round(lighten(accent, 0.92f), 12));
+        qty.setPadding(dp(9), dp(5), dp(9), dp(5));
+        TextView name = text(item.name, compact ? 16 : 20, 0xFF2D2930);
+        name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        name.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 14 : 19, 0xFF57515B);
+        price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+
+        row.addView(price, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(qty);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.setMargins(0, dp(4), 0, dp(4));
+        orderList.addView(row, rowParams);
+        row.setAlpha(0f);
+        row.setTranslationX(dp(20));
+        row.animate().alpha(1f).translationX(0).setDuration(250).start();
+    }
+
+    private void scheduleIdle(long delayMs) {
+        handler.removeCallbacks(idleTask);
+        handler.postDelayed(idleTask, delayMs);
+    }
+
+    @Override protected void onDestroy() {
+        if (client != null) client.stop();
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
 }

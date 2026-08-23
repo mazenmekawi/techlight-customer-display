@@ -30,17 +30,18 @@ public final class TechProClient {
             try{
                 socket = new Socket(); socket.connect(new InetSocketAddress(host,port),3000);
                 socket.setKeepAlive(true); socket.setSoTimeout(0);
-                main.post(listener::onConnected);
+                main.post(() -> { if(running) listener.onConnected(); });
                 BufferedReader br = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                 String line;
                 while(running && (line=br.readLine())!=null){
-                    final String raw=line; main.post(() -> listener.onRaw(raw));
-                    OrderState o=parseOrder(raw); if(o!=null) main.post(() -> listener.onOrder(o));
+                    final String raw=line; main.post(() -> { if(running) listener.onRaw(raw); });
+                    OrderState o=parseOrder(raw); if(o!=null) main.post(() -> { if(running) listener.onOrder(o); });
                 }
                 throw new EOFException("connection closed");
             } catch(Exception e){
+                if(!running) break;
                 final String msg=e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage());
-                main.post(() -> listener.onDisconnected(msg));
+                main.post(() -> { if(running) listener.onDisconnected(msg); });
                 try{ Thread.sleep(2000); }catch(InterruptedException ignored){}
             }
         }
