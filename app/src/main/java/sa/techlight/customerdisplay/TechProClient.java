@@ -163,87 +163,91 @@ public final class TechProClient {
 
     static OrderState parseOrderMessage(String raw) {
         try {
-            JSONObject envelope = objectFrom(raw);
-            if (envelope == null) return null;
-            String type = firstText(envelope, "type", "messageType", "event", "action");
-            String normalizedType = type == null ? "" : type.toLowerCase(Locale.US);
-
-            Object payloadValue = firstValue(envelope, "payload", "body", "message");
-            JSONArray directLines = payloadValue instanceof JSONArray ? (JSONArray) payloadValue : null;
-            JSONObject data = objectFrom(payloadValue);
-            if (data == null) data = envelope;
-            data = unwrap(data, "snapshot", "order", "data", "cart");
-
-            JSONArray lines = directLines != null ? directLines : findItemArray(data);
-            if ((lines == null || lines.length() == 0) && data != envelope) {
-                JSONArray envelopeLines = findItemArray(envelope);
-                if (envelopeLines != null && envelopeLines.length() > 0) lines = envelopeLines;
-            }
-
-            boolean orderMessage = normalizedType.isEmpty()
-                    || normalizedType.contains("order")
-                    || normalizedType.contains("snapshot")
-                    || normalizedType.contains("thankyou")
-                    || normalizedType.contains("clearcustomerdisplay");
-            if (lines == null && !orderMessage) return null;
-
-            OrderState result = new OrderState();
-            if (lines != null) {
-                for (int index = 0; index < lines.length(); index++) {
-                    JSONObject source = objectFrom(lines.opt(index));
-                    if (source == null) continue;
-                    OrderState.Item item = new OrderState.Item();
-                    item.name = firstTextDeep(
-                            source,
-                            "itemName", "name", "productName", "displayNameAr", "itemNameAr",
-                            "nameAr", "displayNameEn", "itemNameEn", "nameEn", "titleAr", "titleEn", "title",
-                            "item_name", "product_name", "name_ar", "name_en"
-                    );
-                    if (item.name == null || item.name.trim().isEmpty()) item.name = "صنف";
-                    item.qty = firstDoubleDeep(source, 1,
-                            "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
-                    item.unitPrice = firstDoubleDeep(
-                            source,
-                            0,
-                            "unitPrice", "price", "unitPriceInclVat", "itemPriceAfterDiscountWithTax", "salePrice",
-                            "unit_price", "sale_price"
-                    );
-                    item.lineTotal = firstDoubleDeep(
-                            source,
-                            Double.NaN,
-                            "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
-                            "line_total", "row_total"
-                    );
-                    result.items.add(item);
-                }
-            }
-
-            result.subtotal = firstDouble(
-                    data,
-                    sumItems(result),
-                    "subtotal", "subTotal", "totalBeforeDiscountInclVat", "totalBeforeDiscount"
-            );
-            result.tax = firstDouble(data, 0, "tax", "totalTax", "taxAmount", "vatTotalAfterDiscount");
-            result.discount = firstDouble(
-                    data,
-                    0,
-                    "discount", "discountTotal", "totalAllDiscounts", "itemsDiscount"
-            );
-            result.total = firstDouble(
-                    data,
-                    sumItems(result),
-                    "total", "grandTotal", "invoiceTotalAfterTax", "totalAfterDiscountInclVat",
-                    "totalAfterDiscountWithVat", "total_including_tax"
-            );
-            String status = firstText(data, "status", "viewState", "state");
-            result.completed = normalizedType.contains("thankyou")
-                    || data.optBoolean("completed", false)
-                    || "completed".equalsIgnoreCase(status)
-                    || "thankYou".equalsIgnoreCase(status);
-            return result;
+            return parseOrderMessageOrThrow(raw);
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    static OrderState parseOrderMessageOrThrow(String raw) throws Exception {
+        JSONObject envelope = objectFrom(raw);
+        if (envelope == null) return null;
+        String type = firstText(envelope, "type", "messageType", "event", "action");
+        String normalizedType = type == null ? "" : type.toLowerCase(Locale.US);
+
+        Object payloadValue = firstValue(envelope, "payload", "body", "message");
+        JSONArray directLines = payloadValue instanceof JSONArray ? (JSONArray) payloadValue : null;
+        JSONObject data = objectFrom(payloadValue);
+        if (data == null) data = envelope;
+        data = unwrap(data, "snapshot", "order", "data", "cart");
+
+        JSONArray lines = directLines != null ? directLines : findItemArray(data);
+        if ((lines == null || lines.length() == 0) && data != envelope) {
+            JSONArray envelopeLines = findItemArray(envelope);
+            if (envelopeLines != null && envelopeLines.length() > 0) lines = envelopeLines;
+        }
+
+        boolean orderMessage = normalizedType.isEmpty()
+                || normalizedType.contains("order")
+                || normalizedType.contains("snapshot")
+                || normalizedType.contains("thankyou")
+                || normalizedType.contains("clearcustomerdisplay");
+        if (lines == null && !orderMessage) return null;
+
+        OrderState result = new OrderState();
+        if (lines != null) {
+            for (int index = 0; index < lines.length(); index++) {
+                JSONObject source = objectFrom(lines.opt(index));
+                if (source == null) continue;
+                OrderState.Item item = new OrderState.Item();
+                item.name = firstTextDeep(
+                        source,
+                        "itemName", "name", "productName", "displayNameAr", "itemNameAr",
+                        "nameAr", "displayNameEn", "itemNameEn", "nameEn", "titleAr", "titleEn", "title",
+                        "item_name", "product_name", "name_ar", "name_en"
+                );
+                if (item.name == null || item.name.trim().isEmpty()) item.name = "صنف";
+                item.qty = firstDoubleDeep(source, 1,
+                        "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
+                item.unitPrice = firstDoubleDeep(
+                        source,
+                        0,
+                        "unitPrice", "price", "unitPriceInclVat", "itemPriceAfterDiscountWithTax", "salePrice",
+                        "unit_price", "sale_price"
+                );
+                item.lineTotal = firstDoubleDeep(
+                        source,
+                        Double.NaN,
+                        "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
+                        "line_total", "row_total"
+                );
+                result.items.add(item);
+            }
+        }
+
+        result.subtotal = firstDouble(
+                data,
+                sumItems(result),
+                "subtotal", "subTotal", "totalBeforeDiscountInclVat", "totalBeforeDiscount"
+        );
+        result.tax = firstDouble(data, 0, "tax", "totalTax", "taxAmount", "vatTotalAfterDiscount");
+        result.discount = firstDouble(
+                data,
+                0,
+                "discount", "discountTotal", "totalAllDiscounts", "itemsDiscount"
+        );
+        result.total = firstDouble(
+                data,
+                sumItems(result),
+                "total", "grandTotal", "invoiceTotalAfterTax", "totalAfterDiscountInclVat",
+                "totalAfterDiscountWithVat", "total_including_tax"
+        );
+        String status = firstText(data, "status", "viewState", "state");
+        result.completed = normalizedType.contains("thankyou")
+                || data.optBoolean("completed", false)
+                || "completed".equalsIgnoreCase(status)
+                || "thankYou".equalsIgnoreCase(status);
+        return result;
     }
 
     private void diagnostic(int currentGeneration, String stage, String detail) {

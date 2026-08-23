@@ -85,7 +85,12 @@ public final class TechProProtocolTest {
         String message = "{\"items\":[{\"name\":{\"ar\":\"قهوة اليوم\",\"en\":\"Coffee\"},"
                 + "\"qty\":1,\"unitPrice\":9}],\"total\":9}";
 
-        OrderState order = TechProClient.parseOrderMessage(message);
+        OrderState order;
+        try {
+            order = TechProClient.parseOrderMessageOrThrow(message);
+        } catch (Exception error) {
+            throw new AssertionError(error);
+        }
         assertNotNull(order);
         assertEquals("قهوة اليوم", order.items.get(0).name);
     }
