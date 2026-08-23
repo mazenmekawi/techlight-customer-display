@@ -692,15 +692,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     @Override public void onConnected() {
         runOnUiThread(() -> {
             setConnectionState("متصل", true);
-            showEmptyOrder("متصل وجاهز", "بانتظار إضافة أصناف من جهاز الكاشير");
-            scheduleIdle(5000);
+            showEmptyOrder("تم الاتصال بـ Tech Pro", "افتح طلبًا أو أضف صنفًا من شاشة الكاشير");
         });
     }
 
     @Override public void onDisconnected(String reason) {
         runOnUiThread(() -> {
             setConnectionState("إعادة الاتصال", false);
-            showEmptyOrder("جارٍ إعادة الاتصال", "تأكد أن الجهازين على نفس شبكة الواي فاي");
+            showEmptyOrder("لم يصل Tech Pro بعد", "افتح وضع شاشة العميل في الكاشير وتأكد أن الجهازين على نفس شبكة الواي فاي");
         });
     }
 
@@ -714,9 +713,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             bringCustomerDisplayForward();
             handler.removeCallbacks(idleTask);
             orderList.removeAllViews();
-            if (order.items == null || order.items.isEmpty()) {
-                showEmptyOrder("طلب جديد", "بانتظار إضافة الأصناف");
-                scheduleIdle(5000);
+            boolean empty = order.items == null || order.items.isEmpty();
+            if (empty) {
+                showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                setConnectionState("متصل", true);
+                scheduleIdle(8000);
             } else {
                 for (OrderState.Item item : order.items) addOrderRow(item);
             }
@@ -727,7 +728,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             if (order.completed) {
                 setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
                 scheduleIdle(7000);
-            } else {
+            } else if (!empty) {
                 setConnectionState("الطلب مباشر", true);
             }
         });
@@ -747,7 +748,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         row.setPadding(dp(compact ? 8 : 12), dp(compact ? 7 : 10), dp(compact ? 8 : 12), dp(compact ? 7 : 10));
         row.setBackground(round(0xFFF9F8FA, 14));
 
-        TextView qty = text("× " + item.qty, compact ? 13 : 15, accent);
+        TextView qty = text("× " + formatQuantity(item.qty), compact ? 13 : 15, accent);
         qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         qty.setGravity(Gravity.CENTER);
         qty.setBackground(round(lighten(accent, 0.92f), 12));
@@ -770,6 +771,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         row.setAlpha(0f);
         row.setTranslationX(dp(20));
         row.animate().alpha(1f).translationX(0).setDuration(250).start();
+    }
+
+    private String formatQuantity(double quantity) {
+        if (Math.abs(quantity - Math.rint(quantity)) < 0.00001) {
+            return String.format(Locale.US, "%.0f", quantity);
+        }
+        String value = String.format(Locale.US, "%.3f", quantity);
+        return value.replaceFirst("0+$", "").replaceFirst("\\.$", "");
     }
 
     private void scheduleIdle(long delayMs) {
