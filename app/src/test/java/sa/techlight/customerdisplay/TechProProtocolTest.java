@@ -157,4 +157,20 @@ public final class TechProProtocolTest {
         assertTrue(order.clearRequested);
         assertEquals(0, order.items.size());
     }
+
+    @Test public void findsCartItemsBehindAnEmptyPublicItemsArray() {
+        String message = "{\"type\":\"orderUpdated\",\"payload\":{"
+                + "\"items\":[],\"orderModel\":{\"cartItems\":[{"
+                + "\"item\":{\"nameAr\":\"سلاش صغير\",\"salePrice\":4.35},"
+                + "\"qty\":2,\"lineTotal\":8.70}]},\"total\":10.00}}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertTrue(order.itemsIncluded);
+        assertEquals(1, order.items.size());
+        assertEquals("سلاش صغير", order.items.get(0).name);
+        assertEquals(2.0, order.items.get(0).qty, 0.0001);
+        assertEquals(8.70, order.items.get(0).total(), 0.0001);
+        assertEquals(10.00, order.total, 0.0001);
+    }
 }

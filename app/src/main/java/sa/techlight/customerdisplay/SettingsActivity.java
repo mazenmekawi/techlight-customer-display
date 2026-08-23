@@ -478,13 +478,15 @@ public final class SettingsActivity extends Activity {
         String updated = updatedAt == 0 ? "لا يوجد" : format.format(new Date(updatedAt));
         String rawTime = rawAt == 0 ? "لا يوجد" : format.format(new Date(rawAt));
         String raw = diagnostics.getString("last_raw", "");
+        String history = diagnostics.getString("raw_history", "");
         return "الإصدار: " + appVersion()
                 + "\nالعنوان: " + (ip == null ? "غير مرتبط" : "ws://" + ip + ":" + port)
                 + "\nالمرحلة: " + diagnostics.getString("stage", "لا يوجد")
                 + "\nالتفصيل: " + diagnostics.getString("detail", "لا يوجد")
                 + "\nآخر تحديث: " + updated
                 + "\nآخر رسالة: " + rawTime + " — " + rawLength + " حرف"
-                + (raw.isEmpty() ? "" : "\nRAW: " + raw);
+                + (raw.isEmpty() ? "" : "\nRAW: " + raw)
+                + (history.isEmpty() ? "" : "\nآخر 12 رسالة: " + history);
     }
 
     private String appVersion() {
