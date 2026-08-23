@@ -436,6 +436,7 @@ public final class TechProClient {
     }
 
     private static double firstDouble(JSONObject object, double fallback, String... keys) {
+        if (object == null) return fallback;
         for (String key : keys) {
             Object value = object.opt(key);
             if (value == null || value == JSONObject.NULL) continue;
@@ -453,6 +454,7 @@ public final class TechProClient {
         String[] nestedKeys = {"product", "item", "productData", "menuItem", "productInfo", "details", "data"};
         for (String nestedKey : nestedKeys) {
             JSONObject nested = objectFrom(object.opt(nestedKey));
+            if (nested == null) continue;
             double value = firstDouble(nested, Double.NaN, keys);
             if (!Double.isNaN(value)) return value;
         }
