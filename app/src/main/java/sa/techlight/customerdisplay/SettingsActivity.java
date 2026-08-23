@@ -5,7 +5,12 @@ import android.app.*;import android.content.*;import android.graphics.Color;impo
 public class SettingsActivity extends Activity {
   SharedPreferences p; EditText welcome,thanks,footer,color; Spinner template; ImageView logo; static final int PICK=42;
   @Override public void onCreate(Bundle b){super.onCreate(b);p=getSharedPreferences("ui",0);showPassword();}
-  void showPassword(){ final EditText e=new EditText(this); e.setInputType(2); e.setHint("0000"); new AlertDialog.Builder(this).setTitle("رمز إعدادات ضوء التقنية").setView(e).setCancelable(false).setNegativeButton("إلغاء",(d,w)->finish()).setPositiveButton("دخول",null).setOnShowListener(d->{AlertDialog a=(AlertDialog)d;a.getButton(-1).setOnClickListener(v->{if("0000".equals(e.getText().toString())){a.dismiss();build();}else e.setError("الرمز غير صحيح");});}).show(); }
+  void showPassword(){
+    final EditText e=new EditText(this); e.setInputType(2); e.setHint("0000");
+    AlertDialog a=new AlertDialog.Builder(this).setTitle("رمز إعدادات ضوء التقنية").setView(e).setCancelable(false).setNegativeButton("إلغاء",(d,w)->finish()).setPositiveButton("دخول",null).create();
+    a.setOnShowListener(d->a.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if("0000".equals(e.getText().toString())){a.dismiss();build();}else e.setError("الرمز غير صحيح");}));
+    a.show();
+  }
   TextView label(String s){TextView t=new TextView(this);t.setText(s);t.setTextSize(17);t.setTextColor(Color.DKGRAY);t.setPadding(0,16,0,6);return t;}
   EditText input(String val){EditText e=new EditText(this);e.setText(val);e.setTextSize(17);e.setSingleLine(true);return e;}
   void build(){
