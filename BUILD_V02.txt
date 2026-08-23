@@ -1,0 +1,1 @@
+Build TechLight Customer Display v0.2 with redesigned UI, QR pairing, settings PIN 0000, templates, colors, restaurant logo and editable texts.
