@@ -50,4 +50,48 @@ public final class TechProProtocolTest {
         assertEquals("192.168.100.23", pairing.ip);
         assertEquals(4040, pairing.port);
     }
+
+    @Test public void parsesItemsKeyedByIdAndNestedProductData() {
+        String message = "{\"type\":\"orderUpdated\",\"payload\":{"
+                + "\"items\":{\"line-7\":{"
+                + "\"product\":{\"nameAr\":\"كركديه آيس\",\"salePrice\":12},"
+                + "\"quantity\":3,\"lineTotal\":36}},"
+                + "\"subtotal\":36,\"total\":41.4}}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertEquals(1, order.items.size());
+        assertEquals("كركديه آيس", order.items.get(0).name);
+        assertEquals(3.0, order.items.get(0).qty, 0.0001);
+        assertEquals(36.0, order.items.get(0).total(), 0.0001);
+        assertEquals(41.4, order.total, 0.0001);
+    }
+
+    @Test public void parsesStringPayloadWithSnakeCaseItems() {
+        String message = "{\"type\":\"orderUpdated\",\"payload\":"
+                + "\"{\\\"order_items\\\":[{\\\"product_name\\\":\\\"Water\\\","
+                + "\\\"item_qty\\\":2,\\\"unit_price\\\":2,\\\"line_total\\\":4}],"
+                + "\\\"total\\\":4}\"}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertEquals(1, order.items.size());
+        assertEquals("Water", order.items.get(0).name);
+        assertEquals(2.0, order.items.get(0).qty, 0.0001);
+        assertEquals(4.0, order.total, 0.0001);
+    }
+
+    @Test public void parsesLocalizedNameObject() {
+        String message = "{\"items\":[{\"name\":{\"ar\":\"قهوة اليوم\",\"en\":\"Coffee\"},"
+                + "\"qty\":1,\"unitPrice\":9}],\"total\":9}";
+
+        OrderState order;
+        try {
+            order = TechProClient.parseOrderMessageOrThrow(message);
+        } catch (Exception error) {
+            throw new AssertionError(error);
+        }
+        assertNotNull(order);
+        assertEquals("قهوة اليوم", order.items.get(0).name);
+    }
 }
