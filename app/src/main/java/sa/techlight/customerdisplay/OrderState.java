@@ -12,4 +12,10 @@ public final class OrderState {
     public final List<Item> items = new ArrayList<>();
     public double subtotal, tax, discount, total;
     public boolean completed;
+    public boolean itemsIncluded;
+    public boolean subtotalIncluded;
+    public boolean taxIncluded;
+    public boolean discountIncluded;
+    public boolean totalIncluded;
+    public boolean clearRequested;
 }

@@ -5,9 +5,13 @@ import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -43,6 +47,7 @@ public final class TechProClient {
     private volatile int generation;
     private volatile int disconnectedGeneration = -1;
     private volatile WebSocket socket;
+    private OrderState lastOrder;
 
     public TechProClient(String host, int port, Listener listener) {
         this.host = host;
@@ -52,6 +57,7 @@ public final class TechProClient {
 
     public void start() {
         if (running) return;
+        lastOrder = null;
         running = true;
         connect();
     }
@@ -80,9 +86,11 @@ public final class TechProClient {
                     return;
                 }
                 socket = webSocket;
+                boolean helloSent = webSocket.send(helloEnvelope());
                 main.post(() -> {
                     if (isCurrent(currentGeneration)) {
                         listener.onDiagnostic("WEBSOCKET_OPEN", url);
+                        listener.onDiagnostic("HELLO_SENT", helloSent ? "version=1" : "send failed");
                         listener.onConnected();
                     }
                 });
@@ -146,15 +154,17 @@ public final class TechProClient {
         if (envelope != null && "heartbeat".equalsIgnoreCase(firstText(envelope, "type", "messageType", "event"))) {
             webSocket.send("{\"type\":\"pong\"}");
         }
-        OrderState order = parseOrderMessage(trimmed);
+        OrderState order = mergeOrderPatch(parseOrderMessage(trimmed));
         String type = envelope == null ? "RAW" : firstText(envelope, "type", "messageType", "event", "action");
         String diagnosticType = type == null ? "SNAPSHOT" : type;
         int itemCount = order == null || order.items == null ? -1 : order.items.size();
+        String parseDetail = diagnosticType + (itemCount >= 0 ? " — items=" + itemCount : "")
+                + (order == null ? "" : " — itemsField=" + order.itemsIncluded + " — total=" + order.total);
         main.post(() -> {
             if (!isCurrent(currentGeneration)) return;
             listener.onDiagnostic(
                     order == null ? "MESSAGE_UNPARSED" : "MESSAGE_PARSED",
-                    diagnosticType + (itemCount >= 0 ? " — items=" + itemCount : "")
+                    parseDetail
             );
             listener.onRaw(raw);
             if (order != null) listener.onOrder(order);
@@ -175,16 +185,17 @@ public final class TechProClient {
         String type = firstText(envelope, "type", "messageType", "event", "action");
         String normalizedType = type == null ? "" : type.toLowerCase(Locale.US);
 
-        Object payloadValue = firstValue(envelope, "payload", "body", "message");
+        Object payloadValue = structuredFrom(firstValue(envelope, "payload", "body", "message"));
         JSONArray directLines = payloadValue instanceof JSONArray ? (JSONArray) payloadValue : null;
         JSONObject data = objectFrom(payloadValue);
         if (data == null) data = envelope;
-        data = unwrap(data, "snapshot", "order", "data", "cart");
+        JSONObject unwrapped = unwrap(data, "snapshot", "order", "data", "cart", "invoice");
 
-        JSONArray lines = directLines != null ? directLines : findItemArray(data);
-        if ((lines == null || lines.length() == 0) && data != envelope) {
+        JSONArray lines = directLines != null ? directLines : findItemArray(unwrapped);
+        if (lines == null && unwrapped != data) lines = findItemArray(data);
+        if (lines == null && data != envelope) {
             JSONArray envelopeLines = findItemArray(envelope);
-            if (envelopeLines != null && envelopeLines.length() > 0) lines = envelopeLines;
+            if (envelopeLines != null) lines = envelopeLines;
         }
 
         boolean orderMessage = normalizedType.isEmpty()
@@ -192,62 +203,118 @@ public final class TechProClient {
                 || normalizedType.contains("snapshot")
                 || normalizedType.contains("thankyou")
                 || normalizedType.contains("clearcustomerdisplay");
-        if (lines == null && !orderMessage) return null;
+        boolean orderAmountsPresent = hasAnyKey(unwrapped,
+                "subtotal", "tax", "discount", "total", "grandTotal", "invTotal", "netAmount")
+                || (unwrapped != data && hasAnyKey(data,
+                "subtotal", "tax", "discount", "total", "grandTotal", "invTotal", "netAmount"));
+        if (lines == null && !orderMessage && !orderAmountsPresent) return null;
 
         OrderState result = new OrderState();
+        result.itemsIncluded = lines != null;
+        result.clearRequested = normalizedType.contains("clearorder")
+                || normalizedType.contains("clearcustomerdisplay");
         if (lines != null) {
             for (int index = 0; index < lines.length(); index++) {
                 JSONObject source = objectFrom(lines.opt(index));
-                if (source == null) continue;
-                OrderState.Item item = new OrderState.Item();
-                item.name = firstTextDeep(
-                        source,
-                        "itemName", "name", "productName", "displayNameAr", "itemNameAr",
-                        "nameAr", "displayNameEn", "itemNameEn", "nameEn", "titleAr", "titleEn", "title",
-                        "item_name", "product_name", "name_ar", "name_en"
-                );
-                if (item.name == null || item.name.trim().isEmpty()) item.name = "صنف";
-                item.qty = firstDoubleDeep(source, 1,
-                        "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
-                item.unitPrice = firstDoubleDeep(
-                        source,
-                        0,
-                        "unitPrice", "price", "unitPriceInclVat", "itemPriceAfterDiscountWithTax", "salePrice",
-                        "unit_price", "sale_price"
-                );
-                item.lineTotal = firstDoubleDeep(
-                        source,
-                        Double.NaN,
-                        "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
-                        "line_total", "row_total"
-                );
-                result.items.add(item);
+                OrderState.Item item = source == null
+                        ? itemFromArray(lines.opt(index))
+                        : itemFromObject(source);
+                if (item != null) result.items.add(item);
             }
         }
 
-        result.subtotal = firstDouble(
-                data,
-                sumItems(result),
-                "subtotal", "subTotal", "totalBeforeDiscountInclVat", "totalBeforeDiscount"
-        );
-        result.tax = firstDouble(data, 0, "tax", "totalTax", "taxAmount", "vatTotalAfterDiscount");
-        result.discount = firstDouble(
-                data,
-                0,
-                "discount", "discountTotal", "totalAllDiscounts", "itemsDiscount"
-        );
-        result.total = firstDouble(
-                data,
-                sumItems(result),
-                "total", "grandTotal", "invoiceTotalAfterTax", "totalAfterDiscountInclVat",
-                "totalAfterDiscountWithVat", "total_including_tax"
-        );
-        String status = firstText(data, "status", "viewState", "state");
+        JSONObject[] valueSources = unwrapped == data
+                ? (data == envelope ? new JSONObject[]{unwrapped} : new JSONObject[]{unwrapped, envelope})
+                : (data == envelope ? new JSONObject[]{unwrapped, data} : new JSONObject[]{unwrapped, data, envelope});
+        String[] subtotalKeys = {"subtotal", "subTotal", "totalBeforeDiscountInclVat", "totalBeforeDiscount", "netAmount"};
+        String[] taxKeys = {"tax", "totalTax", "taxAmount", "vatTotalAfterDiscount", "vatAmount"};
+        String[] discountKeys = {"discount", "discountTotal", "totalAllDiscounts", "itemsDiscount", "discountAmount"};
+        String[] totalKeys = {"total", "grandTotal", "invoiceTotalAfterTax", "totalAfterDiscountInclVat",
+                "totalAfterDiscountWithVat", "total_including_tax", "invTotal"};
+        result.subtotalIncluded = hasAnyKeyInSources(valueSources, subtotalKeys);
+        result.subtotal = firstDoubleInSources(valueSources, sumItems(result), subtotalKeys);
+        result.taxIncluded = hasAnyKeyInSources(valueSources, taxKeys);
+        result.tax = firstDoubleInSources(valueSources, 0, taxKeys);
+        result.discountIncluded = hasAnyKeyInSources(valueSources, discountKeys);
+        result.discount = firstDoubleInSources(valueSources, 0, discountKeys);
+        result.totalIncluded = hasAnyKeyInSources(valueSources, totalKeys);
+        result.total = firstDoubleInSources(valueSources, sumItems(result), totalKeys);
+        String status = firstTextInSources(valueSources, "status", "viewState", "state");
         result.completed = normalizedType.contains("thankyou")
-                || data.optBoolean("completed", false)
+                || firstBoolean(unwrapped, false, "completed")
                 || "completed".equalsIgnoreCase(status)
                 || "thankYou".equalsIgnoreCase(status);
+        if ("idle".equalsIgnoreCase(status) && result.itemsIncluded && result.items.isEmpty()) {
+            result.clearRequested = true;
+        }
         return result;
+    }
+
+    private static OrderState.Item itemFromObject(JSONObject source) {
+        OrderState.Item item = new OrderState.Item();
+        item.name = firstTextDeep(
+                source,
+                "itemName", "name", "productName", "displayNameAr", "itemNameAr",
+                "nameAr", "displayNameEn", "itemNameEn", "nameEn", "titleAr", "titleEn", "title",
+                "item_name", "product_name", "name_ar", "name_en", "description"
+        );
+        boolean hasQuantity = hasAnyKeyDeep(source,
+                "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
+        boolean hasPrice = hasAnyKeyDeep(source,
+                "unitPrice", "price", "unitPriceInclVat", "itemPriceAfterDiscountWithTax", "salePrice",
+                "unit_price", "sale_price", "finalPrice");
+        boolean hasLineTotal = hasAnyKeyDeep(source,
+                "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
+                "line_total", "row_total");
+        if ((item.name == null || item.name.trim().isEmpty()) && !hasQuantity && !hasPrice && !hasLineTotal) {
+            return null;
+        }
+        if (item.name == null || item.name.trim().isEmpty()) item.name = "صنف";
+        item.qty = firstDoubleDeep(source, 1,
+                "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
+        item.unitPrice = firstDoubleDeep(
+                source,
+                0,
+                "unitPrice", "price", "unitPriceInclVat", "itemPriceAfterDiscountWithTax", "salePrice",
+                "unit_price", "sale_price", "finalPrice"
+        );
+        item.lineTotal = firstDoubleDeep(
+                source,
+                Double.NaN,
+                "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
+                "line_total", "row_total"
+        );
+        return item;
+    }
+
+    private static OrderState.Item itemFromArray(Object value) {
+        Object structured = structuredFrom(value);
+        if (!(structured instanceof JSONArray)) return null;
+        JSONArray row = (JSONArray) structured;
+        if (row.length() < 3) return null;
+        int nameIndex = -1;
+        for (int index = 0; index < row.length(); index++) {
+            Object cell = row.opt(index);
+            if (!(cell instanceof String)) continue;
+            String text = ((String) cell).trim();
+            if (!text.isEmpty() && Double.isNaN(numberOrNaN(text))) {
+                nameIndex = index;
+                break;
+            }
+        }
+        if (nameIndex < 0) return null;
+        OrderState.Item item = new OrderState.Item();
+        item.name = String.valueOf(row.opt(nameIndex)).trim();
+        item.qty = numericCell(row, nameIndex + 1, 1);
+        item.unitPrice = numericCell(row, nameIndex + 2, 0);
+        item.lineTotal = numericCell(row, nameIndex + 3, Double.NaN);
+        return item;
+    }
+
+    private static double numericCell(JSONArray row, int index, double fallback) {
+        if (index < 0 || index >= row.length()) return fallback;
+        double value = numberOrNaN(row.opt(index));
+        return Double.isNaN(value) ? fallback : value;
     }
 
     private void diagnostic(int currentGeneration, String stage, String detail) {
@@ -267,7 +334,7 @@ public final class TechProClient {
         for (int pass = 0; pass < 4; pass++) {
             JSONObject nested = null;
             for (String key : keys) {
-                nested = objectFrom(current.opt(key));
+                nested = objectFrom(valueForKey(current, key));
                 if (nested != null) break;
             }
             if (nested == null || nested == current) break;
@@ -277,25 +344,37 @@ public final class TechProClient {
     }
 
     private static JSONObject objectFrom(Object value) {
-        if (value instanceof JSONObject) return (JSONObject) value;
-        if (!(value instanceof String)) return null;
-        String text = ((String) value).trim();
-        if (text.isEmpty()) return null;
-        try {
-            return new JSONObject(text);
-        } catch (Exception ignored) {
+        Object structured = structuredFrom(value);
+        return structured instanceof JSONObject ? (JSONObject) structured : null;
+    }
+
+    private static Object structuredFrom(Object value) {
+        Object current = value;
+        for (int pass = 0; pass < 4; pass++) {
+            if (current instanceof JSONObject || current instanceof JSONArray) return current;
+            if (!(current instanceof String)) return null;
+            String text = ((String) current).trim();
+            if (text.isEmpty()) return null;
             try {
-                String decoded = new JSONArray("[" + text + "]").getString(0);
-                return new JSONObject(decoded);
-            } catch (Exception ignoredAgain) {
-                return null;
+                Object parsed = new JSONTokener(text).nextValue();
+                if (parsed instanceof String && text.equals(parsed)) return null;
+                current = parsed;
+            } catch (Exception ignored) {
+                try {
+                    String decoded = new JSONArray("[" + text + "]").getString(0);
+                    if (decoded.equals(text)) return null;
+                    current = decoded;
+                } catch (Exception ignoredAgain) {
+                    return null;
+                }
             }
         }
+        return current instanceof JSONObject || current instanceof JSONArray ? current : null;
     }
 
     private static Object firstValue(JSONObject object, String... keys) {
         for (String key : keys) {
-            Object value = object.opt(key);
+            Object value = valueForKey(object, key);
             if (value != null && value != JSONObject.NULL) return value;
         }
         return null;
@@ -305,11 +384,13 @@ public final class TechProClient {
         if (object == null) return null;
         String[] preferredKeys = {
                 "items", "lines", "orderLines", "cartItems", "products",
-                "orderItems", "invoiceItems", "rows", "order_items", "invoice_items", "cart_items"
+                "orderItems", "invoiceItems", "rows", "order_items", "invoice_items", "cart_items",
+                "itemList", "Itemlist", "pos_dt_Collection", "invoiceDetails", "orderDetails", "details"
         };
         JSONArray emptyPreferred = null;
         for (String key : preferredKeys) {
-            JSONArray candidate = arrayFrom(object.opt(key));
+            if (!hasKey(object, key)) continue;
+            JSONArray candidate = arrayFrom(valueForKey(object, key));
             if (candidate == null) continue;
             if (candidate.length() > 0) return candidate;
             if (emptyPreferred == null) emptyPreferred = candidate;
@@ -320,15 +401,23 @@ public final class TechProClient {
 
     private static JSONArray findItemArrayRecursive(Object value, int depth) {
         if (value == null || value == JSONObject.NULL || depth > 7) return null;
-        JSONObject object = objectFrom(value);
+        Object structured = structuredFrom(value);
+        JSONObject object = structured instanceof JSONObject ? (JSONObject) structured : null;
         if (object != null) {
             String[] preferredKeys = {
                     "items", "lines", "orderLines", "cartItems", "products",
-                    "orderItems", "invoiceItems", "rows", "order_items", "invoice_items", "cart_items"
+                    "orderItems", "invoiceItems", "rows", "order_items", "invoice_items", "cart_items",
+                    "itemList", "Itemlist", "pos_dt_Collection", "invoiceDetails", "orderDetails", "details"
             };
             for (String key : preferredKeys) {
-                JSONArray candidate = arrayFrom(object.opt(key));
-                if (candidate != null && candidate.length() > 0) return candidate;
+                if (!hasKey(object, key)) continue;
+                JSONArray candidate = arrayFrom(valueForKey(object, key));
+                if (candidate != null) return candidate;
+            }
+            if (looksLikeItemObject(object)) {
+                JSONArray single = new JSONArray();
+                single.put(object);
+                return single;
             }
             Iterator<String> keys = object.keys();
             while (keys.hasNext()) {
@@ -343,8 +432,8 @@ public final class TechProClient {
             }
             return null;
         }
-        if (value instanceof JSONArray) {
-            JSONArray array = (JSONArray) value;
+        if (structured instanceof JSONArray) {
+            JSONArray array = (JSONArray) structured;
             if (looksLikeItemArray(array)) return array;
             for (int index = 0; index < array.length(); index++) {
                 JSONArray nested = findItemArrayRecursive(array.opt(index), depth + 1);
@@ -355,8 +444,9 @@ public final class TechProClient {
     }
 
     private static JSONArray arrayFrom(Object value) {
-        if (value instanceof JSONArray) return (JSONArray) value;
-        JSONObject object = objectFrom(value);
+        Object structured = structuredFrom(value);
+        if (structured instanceof JSONArray) return (JSONArray) structured;
+        JSONObject object = objectFrom(structured);
         if (object != null) {
             JSONArray result = new JSONArray();
             if (looksLikeItemObject(object)) {
@@ -366,15 +456,10 @@ public final class TechProClient {
             Iterator<String> keys = object.keys();
             while (keys.hasNext()) {
                 Object entry = object.opt(keys.next());
-                if (objectFrom(entry) != null) result.put(entry);
+                Object parsed = structuredFrom(entry);
+                if (parsed instanceof JSONObject || parsed instanceof JSONArray) result.put(parsed);
             }
             return result.length() == 0 ? null : result;
-        }
-        if (value instanceof String) {
-            String text = ((String) value).trim();
-            if (text.isEmpty()) return null;
-            try { return new JSONArray(text); }
-            catch (Exception ignored) { return null; }
         }
         return null;
     }
@@ -399,13 +484,37 @@ public final class TechProClient {
     }
 
     private static boolean hasAnyKey(JSONObject object, String... keys) {
-        for (String key : keys) if (object.has(key) && !object.isNull(key)) return true;
+        if (object == null) return false;
+        for (String key : keys) {
+            Object value = valueForKey(object, key);
+            if (value != null && value != JSONObject.NULL) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasAnyKeyInSources(JSONObject[] sources, String... keys) {
+        for (JSONObject source : sources) if (hasAnyKey(source, keys)) return true;
+        return false;
+    }
+
+    private static boolean hasAnyKeyDeep(JSONObject object, String... keys) {
+        return hasAnyKeyDeep(object, 0, keys);
+    }
+
+    private static boolean hasAnyKeyDeep(JSONObject object, int depth, String... keys) {
+        if (object == null || depth > 4) return false;
+        if (hasAnyKey(object, keys)) return true;
+        String[] nestedKeys = {"product", "item", "productData", "menuItem", "productInfo", "details", "data"};
+        for (String nestedKey : nestedKeys) {
+            JSONObject nested = objectFrom(valueForKey(object, nestedKey));
+            if (hasAnyKeyDeep(nested, depth + 1, keys)) return true;
+        }
         return false;
     }
 
     private static String firstText(JSONObject object, String... keys) {
         for (String key : keys) {
-            Object raw = object.opt(key);
+            Object raw = valueForKey(object, key);
             if (raw instanceof JSONObject) {
                 String localized = firstText((JSONObject) raw, "ar", "ar-SA", "arabic", "en", "en-US", "english", "value");
                 if (localized != null) return localized;
@@ -414,6 +523,14 @@ public final class TechProClient {
             if (raw == null || raw == JSONObject.NULL) continue;
             String value = String.valueOf(raw).trim();
             if (!value.isEmpty() && !"null".equalsIgnoreCase(value)) return value;
+        }
+        return null;
+    }
+
+    private static String firstTextInSources(JSONObject[] sources, String... keys) {
+        for (JSONObject source : sources) {
+            String value = firstText(source, keys);
+            if (value != null) return value;
         }
         return null;
     }
@@ -428,7 +545,7 @@ public final class TechProClient {
         if (direct != null) return direct;
         String[] nestedKeys = {"product", "item", "productData", "menuItem", "productInfo", "details", "data"};
         for (String nestedKey : nestedKeys) {
-            JSONObject nested = objectFrom(object.opt(nestedKey));
+            JSONObject nested = objectFrom(valueForKey(object, nestedKey));
             String value = firstTextDeep(nested, depth + 1, keys);
             if (value != null) return value;
         }
@@ -438,11 +555,18 @@ public final class TechProClient {
     private static double firstDouble(JSONObject object, double fallback, String... keys) {
         if (object == null) return fallback;
         for (String key : keys) {
-            Object value = object.opt(key);
+            Object value = valueForKey(object, key);
             if (value == null || value == JSONObject.NULL) continue;
-            if (value instanceof Number) return ((Number) value).doubleValue();
-            try { return Double.parseDouble(String.valueOf(value).replace(",", "").trim()); }
-            catch (Exception ignored) { }
+            double parsed = numberOrNaN(value);
+            if (!Double.isNaN(parsed)) return parsed;
+        }
+        return fallback;
+    }
+
+    private static double firstDoubleInSources(JSONObject[] sources, double fallback, String... keys) {
+        for (JSONObject source : sources) {
+            double value = firstDouble(source, Double.NaN, keys);
+            if (!Double.isNaN(value)) return value;
         }
         return fallback;
     }
@@ -453,11 +577,97 @@ public final class TechProClient {
         if (!Double.isNaN(direct)) return direct;
         String[] nestedKeys = {"product", "item", "productData", "menuItem", "productInfo", "details", "data"};
         for (String nestedKey : nestedKeys) {
-            JSONObject nested = objectFrom(object.opt(nestedKey));
+            JSONObject nested = objectFrom(valueForKey(object, nestedKey));
             if (nested == null) continue;
             double value = firstDouble(nested, Double.NaN, keys);
             if (!Double.isNaN(value)) return value;
         }
         return fallback;
+    }
+
+    private static boolean firstBoolean(JSONObject object, boolean fallback, String... keys) {
+        Object value = firstValue(object, keys);
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof Number) return ((Number) value).intValue() != 0;
+        if (value == null) return fallback;
+        String text = String.valueOf(value).trim();
+        if ("true".equalsIgnoreCase(text) || "1".equals(text)) return true;
+        if ("false".equalsIgnoreCase(text) || "0".equals(text)) return false;
+        return fallback;
+    }
+
+    private static Object valueForKey(JSONObject object, String requested) {
+        if (object == null || requested == null) return null;
+        if (object.has(requested)) return object.opt(requested);
+        String canonicalRequested = canonicalKey(requested);
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) {
+            String actual = keys.next();
+            if (canonicalRequested.equals(canonicalKey(actual))) return object.opt(actual);
+        }
+        return null;
+    }
+
+    private static boolean hasKey(JSONObject object, String requested) {
+        if (object == null || requested == null) return false;
+        if (object.has(requested)) return true;
+        String canonicalRequested = canonicalKey(requested);
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) {
+            if (canonicalRequested.equals(canonicalKey(keys.next()))) return true;
+        }
+        return false;
+    }
+
+    private static String canonicalKey(String key) {
+        return key.replace("_", "")
+                .replace("-", "")
+                .replace(" ", "")
+                .toLowerCase(Locale.US);
+    }
+
+    private static double numberOrNaN(Object value) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value == null || value == JSONObject.NULL) return Double.NaN;
+        String text = String.valueOf(value).trim()
+                .replace(",", "")
+                .replace("SAR", "")
+                .replace("sar", "")
+                .replace("ر.س", "")
+                .trim();
+        try { return Double.parseDouble(text); }
+        catch (Exception ignored) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("-?\\d+(?:\\.\\d+)?")
+                    .matcher(text);
+            if (!matcher.find()) return Double.NaN;
+            try { return Double.parseDouble(matcher.group()); }
+            catch (Exception ignoredAgain) { return Double.NaN; }
+        }
+    }
+
+    private synchronized OrderState mergeOrderPatch(OrderState incoming) {
+        if (incoming == null) return null;
+        if (!incoming.clearRequested && !incoming.itemsIncluded && lastOrder != null) {
+            incoming.items.addAll(lastOrder.items);
+        }
+        if (lastOrder != null && !incoming.clearRequested) {
+            if (!incoming.subtotalIncluded && !incoming.itemsIncluded) incoming.subtotal = lastOrder.subtotal;
+            if (!incoming.taxIncluded) incoming.tax = lastOrder.tax;
+            if (!incoming.discountIncluded) incoming.discount = lastOrder.discount;
+            if (!incoming.totalIncluded && !incoming.itemsIncluded) incoming.total = lastOrder.total;
+        }
+        if (incoming.itemsIncluded && !incoming.totalIncluded) incoming.total = sumItems(incoming);
+        if (incoming.itemsIncluded && !incoming.subtotalIncluded) incoming.subtotal = sumItems(incoming);
+        lastOrder = incoming;
+        return incoming;
+    }
+
+    private static String helloEnvelope() {
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+        format.setTimeZone(TimeZone.getTimeZone("UTC"));
+        String sentAt = format.format(new Date());
+        return "{\"type\":\"hello\",\"payload\":{\"client\":\"TechLightCustomerDisplay\"},"
+                + "\"sentAt\":\"" + sentAt + "\",\"version\":1}";
     }
 }

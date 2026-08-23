@@ -5,6 +5,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public final class TechProProtocolTest {
     @Test public void parsesExactFullSnapshotEnvelope() {
@@ -93,5 +94,67 @@ public final class TechProProtocolTest {
         }
         assertNotNull(order);
         assertEquals("قهوة اليوم", order.items.get(0).name);
+    }
+
+    @Test public void parsesTechProWebItemListWithUppercaseFields() {
+        String message = "{\"TYPE\":\"orderUpdated\",\"PAYLOAD\":{"
+                + "\"Itemlist\":[{\"ID\":45473,\"Name\":\"سلاش صغير\","
+                + "\"QTY\":2,\"UNIT_PRICE\":4.35,\"LINE_TOTAL\":8.70}],"
+                + "\"NET_AMOUNT\":8.70,\"VAT_AMOUNT\":1.30,\"INV_TOTAL\":10.00}}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertTrue(order.itemsIncluded);
+        assertEquals(1, order.items.size());
+        assertEquals("سلاش صغير", order.items.get(0).name);
+        assertEquals(2.0, order.items.get(0).qty, 0.0001);
+        assertEquals(4.35, order.items.get(0).unitPrice, 0.0001);
+        assertEquals(8.70, order.items.get(0).total(), 0.0001);
+        assertEquals(10.00, order.total, 0.0001);
+    }
+
+    @Test public void parsesDoubleEncodedArrayPayload() {
+        String message = "{\"type\":\"orderUpdated\",\"payload\":"
+                + "\"[{\\\"NAME_AR\\\":\\\"عصير توت\\\",\\\"QTY\\\":3,"
+                + "\\\"UNIT_PRICE\\\":2.5,\\\"LINE_TOTAL\\\":7.5}]\"}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertEquals(1, order.items.size());
+        assertEquals("عصير توت", order.items.get(0).name);
+        assertEquals(3.0, order.items.get(0).qty, 0.0001);
+        assertEquals(7.5, order.total, 0.0001);
+    }
+
+    @Test public void keepsOuterTotalsWhenItemsAreInsideSnapshot() {
+        String message = "{\"type\":\"fullSnapshot\",\"payload\":{"
+                + "\"snapshot\":{\"items\":[{\"nameAr\":\"ماء\",\"qty\":1,\"unitPrice\":2}]},"
+                + "\"tax\":0.3,\"total\":2.3}}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertEquals(1, order.items.size());
+        assertEquals(0.3, order.tax, 0.0001);
+        assertEquals(2.3, order.total, 0.0001);
+    }
+
+    @Test public void parsesPricePatchEvenWhenEventNameDoesNotContainOrder() {
+        OrderState order = TechProClient.parseOrderMessage(
+                "{\"type\":\"priceUpdated\",\"payload\":{\"grandTotal\":25.5}}"
+        );
+        assertNotNull(order);
+        assertFalse(order.itemsIncluded);
+        assertTrue(order.totalIncluded);
+        assertEquals(25.5, order.total, 0.0001);
+    }
+
+    @Test public void recognizesExplicitEmptyItemsAsARealClearSnapshot() {
+        OrderState order = TechProClient.parseOrderMessage(
+                "{\"type\":\"fullSnapshot\",\"payload\":{\"state\":\"idle\",\"items\":[],\"total\":0}}"
+        );
+        assertNotNull(order);
+        assertTrue(order.itemsIncluded);
+        assertTrue(order.clearRequested);
+        assertEquals(0, order.items.size());
     }
 }
