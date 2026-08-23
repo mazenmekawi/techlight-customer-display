@@ -17,13 +17,14 @@
         android:roundIcon="@drawable/ic_techlight"
         android:banner="@drawable/tv_banner"
         android:theme="@style/AppTheme"
+        android:resizeableActivity="true"
+        android:supportsRtl="true"
         android:usesCleartextTraffic="true">
 
-        <activity android:name=".SettingsActivity" android:screenOrientation="landscape" android:exported="false" />
-        <activity android:name=".MainActivity" android:screenOrientation="landscape" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
         <activity
             android:name=".SplashActivity"
-            android:screenOrientation="landscape"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
