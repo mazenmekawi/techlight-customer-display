@@ -2,6 +2,8 @@ package sa.techlight.customerdisplay;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -22,6 +24,10 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public final class SettingsActivity extends Activity {
     private static final int PICK_LOGO = 42;
@@ -396,7 +402,7 @@ public final class SettingsActivity extends Activity {
         ableIdle.setTextColor(0xFF403A44);
         ableIdle.setGravity(Gravity.CENTER_VERTICAL);
         ableIdle.setPadding(0, dp(7), 0, dp(7));
-        ableIdle.setChecked(preferences.getBoolean("able_idle", true) && installed);
+        ableIdle.setChecked(preferences.getBoolean("able_idle", false) && installed);
         ableIdle.setEnabled(installed);
         section.addView(ableIdle);
     }
@@ -416,6 +422,37 @@ public final class SettingsActivity extends Activity {
         );
         connection.setPadding(0, dp(2), 0, dp(10));
         section.addView(connection);
+
+        TextView compatibility = text(
+                "تنبيه: نسخة Tech Pro 1.0.12 القديمة لا تحتوي خادم شاشة العميل. استخدم نسخة Tech Pro التي تعرض خيار QR لشاشة العميل وتأكد أن الطلب يُفتح في النسخة نفسها.",
+                12,
+                0xFF8A5A00
+        );
+        compatibility.setPadding(0, 0, 0, dp(10));
+        section.addView(compatibility);
+
+        SharedPreferences diagnosticPreferences = getSharedPreferences("diagnostics", 0);
+        String report = diagnosticReport(diagnosticPreferences, ip, pair.getInt("port", 4040));
+        TextView diagnostic = text(report, 12, 0xFF514A55);
+        diagnostic.setTextIsSelectable(true);
+        diagnostic.setPadding(dp(12), dp(10), dp(12), dp(10));
+        diagnostic.setBackground(round(0xFFF7F4F8, 12));
+        section.addView(diagnostic);
+
+        TextView copy = button("نسخ تقرير التشخيص", false);
+        copy.setOnClickListener(view -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("TechLight diagnostics", report));
+                Toast.makeText(this, "تم نسخ تقرير التشخيص", Toast.LENGTH_SHORT).show();
+            }
+        });
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+        );
+        copyParams.setMargins(0, dp(9), 0, dp(7));
+        section.addView(copy, copyParams);
+
         TextView reset = button("إلغاء الربط وإظهار شاشة QR", false);
         reset.setOnClickListener(view -> new AlertDialog.Builder(this)
                 .setTitle("إلغاء ربط الشاشة؟")
@@ -431,6 +468,21 @@ public final class SettingsActivity extends Activity {
         section.addView(reset, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
         ));
+    }
+
+    private String diagnosticReport(SharedPreferences diagnostics, String ip, int port) {
+        long updatedAt = diagnostics.getLong("updated_at", 0);
+        long rawAt = diagnostics.getLong("last_raw_at", 0);
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+        String updated = updatedAt == 0 ? "لا يوجد" : format.format(new Date(updatedAt));
+        String rawTime = rawAt == 0 ? "لا يوجد" : format.format(new Date(rawAt));
+        String raw = diagnostics.getString("last_raw", "");
+        return "العنوان: " + (ip == null ? "غير مرتبط" : "ws://" + ip + ":" + port)
+                + "\nالمرحلة: " + diagnostics.getString("stage", "لا يوجد")
+                + "\nالتفصيل: " + diagnostics.getString("detail", "لا يوجد")
+                + "\nآخر تحديث: " + updated
+                + "\nآخر رسالة: " + rawTime
+                + (raw.isEmpty() ? "" : "\nRAW: " + raw);
     }
 
     private TextView fieldLabel(String value) {
@@ -480,7 +532,7 @@ public final class SettingsActivity extends Activity {
                 .putString("footer", footer.getText().toString().trim())
                 .putBoolean("able_idle", ableIdle != null && ableIdle.isEnabled()
                         ? ableIdle.isChecked()
-                        : preferences.getBoolean("able_idle", true))
+                        : preferences.getBoolean("able_idle", false))
                 .apply();
         setResult(RESULT_OK);
         finish();
