@@ -21,7 +21,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -55,7 +54,7 @@ import java.util.Map;
 
 public final class MainActivity extends Activity implements TechProClient.Listener {
     private static final int CAMERA_REQ = 501;
-    private static final int CAMERA_PHOTO_REQ = 502;
+    private static final int QR_IMAGE_REQ = 503;
     private static final int SETTINGS_REQ = 77;
     private static final long SETTINGS_VISIBLE_MS = 6500;
 
@@ -69,6 +68,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private TextView statusDot;
     private TextView settingsPill;
     private TextView itemCount;
+    private LinearLayout statusChip;
     private TechProClient client;
     private AbleSignController able;
     private SharedPreferences ui;
@@ -77,7 +77,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private int accent = Color.rgb(91, 42, 134);
     private boolean compact;
     private boolean paired;
-    private boolean requestPhotoAfterPermission;
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
@@ -179,11 +178,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         root.setOrientation(LinearLayout.VERTICAL);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setPadding(dp(compact ? 14 : 26), dp(compact ? 12 : 18), dp(compact ? 14 : 26), dp(12));
-        GradientDrawable page = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFFF7F5FA, 0xFFFFFFFF}
-        );
-        root.setBackground(page);
+        root.setBackgroundColor(0xFFF8F9FA);
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
@@ -217,19 +212,19 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             top.addView(screenName, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         }
 
-        LinearLayout live = new LinearLayout(this);
-        live.setOrientation(LinearLayout.HORIZONTAL);
-        live.setGravity(Gravity.CENTER);
-        live.setPadding(dp(compact ? 10 : 14), dp(7), dp(compact ? 10 : 14), dp(7));
-        live.setBackground(round(0xFFF1EDF6, 18));
+        statusChip = new LinearLayout(this);
+        statusChip.setOrientation(LinearLayout.HORIZONTAL);
+        statusChip.setGravity(Gravity.CENTER);
+        statusChip.setPadding(dp(compact ? 10 : 14), dp(7), dp(compact ? 10 : 14), dp(7));
+        statusChip.setBackground(round(0xFFF1F3F4, 20));
         statusDot = text("●", 12, accent);
         statusDot.setPadding(0, 0, dp(5), 0);
-        live.addView(statusDot);
+        statusChip.addView(statusDot);
         status = text("جاهز", compact ? 12 : 13, 0xFF514C58);
         status.setGravity(Gravity.CENTER);
         status.setPadding(0, 0, 0, 0);
-        live.addView(status);
-        top.addView(live);
+        statusChip.addView(status);
+        top.addView(statusChip);
         root.addView(top);
 
         title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 29, 0xFF242128);
@@ -326,7 +321,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout orderCard = new LinearLayout(this);
         orderCard.setOrientation(LinearLayout.VERTICAL);
         orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 12 : 18), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
-        orderCard.setBackground(strokeBg(Color.WHITE, 0xFFEAE7ED, 24));
+        orderCard.setBackground(strokeBg(Color.WHITE, 0xFFE0E3E7, 28));
         orderCard.setElevation(dp(1));
 
         LinearLayout header = new LinearLayout(this);
@@ -336,7 +331,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         itemCount = text("0 صنف", 12, 0xFF615A67);
         itemCount.setGravity(Gravity.CENTER);
-        itemCount.setBackground(round(0xFFF5F2F7, 16));
+        itemCount.setBackground(round(0xFFF1F3F4, 18));
         itemCount.setPadding(dp(11), dp(5), dp(11), dp(5));
         LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -346,7 +341,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         header.addView(itemCount, countParams);
         TextView liveBadge = text("مباشر", 12, accent);
         liveBadge.setGravity(Gravity.CENTER);
-        liveBadge.setBackground(round(lighten(accent, 0.91f), 16));
+        liveBadge.setBackground(round(lighten(accent, 0.91f), 18));
         liveBadge.setPadding(dp(11), dp(5), dp(11), dp(5));
         header.addView(liveBadge);
         orderCard.addView(header);
@@ -377,7 +372,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 GradientDrawable.Orientation.TL_BR,
                 new int[]{lighten(accent, 0.90f), 0xFFFFFFFF}
         );
-        summaryBg.setCornerRadius(dp(24));
+        summaryBg.setCornerRadius(dp(28));
         summary.setBackground(summaryBg);
         summary.setElevation(dp(1));
 
@@ -390,7 +385,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         total.setGravity(Gravity.CENTER);
         total.setPadding(0, dp(3), 0, dp(6));
         summary.addView(total);
-        TextView safe = text("يتحدث الطلب فورًا من الكاشير", compact ? 11 : 13, 0xFF8D8792);
+        TextView safe = text("يُحدَّث تلقائيًا من نقطة البيع", compact ? 11 : 13, 0xFF6F6A74);
         safe.setGravity(Gravity.CENTER);
         summary.addView(safe);
 
@@ -563,23 +558,23 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         heading.setGravity(Gravity.CENTER);
         heading.setPadding(dp(8), dp(10), dp(8), dp(2));
         card.addView(heading);
-        TextView detail = text("اعرض QR الاقتران من Tech Pro. يمكنك تصويره بكاميرا الجهاز أو استخدام المسح المباشر.", compact ? 13 : 15, 0xFF77717C);
+        TextView detail = text("افتح QR شاشة العميل في Tech Pro، ثم وجّه كاميرا هذا الجهاز إليه.", compact ? 13 : 15, 0xFF77717C);
         detail.setGravity(Gravity.CENTER);
         detail.setPadding(dp(16), dp(2), dp(16), dp(15));
         card.addView(detail);
 
-        TextView photo = action("فتح الكاميرا وتصوير QR", R.drawable.ic_scan_qr, true);
-        photo.setOnClickListener(view -> preparePhotoCamera());
-        card.addView(photo, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
-
-        TextView liveScan = action("المسح المباشر", R.drawable.ic_scan_qr, false);
+        TextView liveScan = action("مسح QR بالكاميرا", R.drawable.ic_scan_qr, true);
         liveScan.setOnClickListener(view -> prepareLiveScanner());
-        LinearLayout.LayoutParams liveParams = new LinearLayout.LayoutParams(
+        card.addView(liveScan, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+
+        TextView gallery = action("اختيار صورة QR من الجهاز", R.drawable.ic_scan_qr, false);
+        gallery.setOnClickListener(view -> launchQrImagePicker());
+        LinearLayout.LayoutParams galleryParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(54)
         );
-        liveParams.setMargins(0, dp(8), 0, 0);
-        card.addView(liveScan, liveParams);
+        galleryParams.setMargins(0, dp(8), 0, 0);
+        card.addView(gallery, galleryParams);
 
         TextView alternative = text("أو استخدم الربط اليدوي", 12, 0xFF9A949E);
         alternative.setGravity(Gravity.CENTER);
@@ -598,21 +593,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void prepareLiveScanner() {
-        requestPhotoAfterPermission = false;
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
             return;
         }
         launchScanner();
-    }
-
-    private void preparePhotoCamera() {
-        requestPhotoAfterPermission = true;
-        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
-            return;
-        }
-        launchPhotoCamera();
     }
 
     private void launchScanner() {
@@ -631,26 +616,23 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             writeDiagnostic("CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
             new AlertDialog.Builder(this)
                     .setTitle("تعذّر فتح ماسح QR")
-                    .setMessage("تعذّر تشغيل المسح المباشر. استخدم تصوير QR بكاميرا الجهاز أو أدخل IP والمنفذ.")
-                    .setPositiveButton("تصوير QR", (dialog, which) -> preparePhotoCamera())
+                    .setMessage("تعذّر تشغيل الكاميرا المباشرة. اختر صورة QR محفوظة أو أدخل IP والمنفذ.")
+                    .setPositiveButton("اختيار صورة", (dialog, which) -> launchQrImagePicker())
                     .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
                     .show();
         }
     }
 
-    private void launchPhotoCamera() {
+    private void launchQrImagePicker() {
         try {
-            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            startActivityForResult(intent, CAMERA_PHOTO_REQ);
-            writeDiagnostic("SYSTEM_CAMERA_LAUNCHED", "ACTION_IMAGE_CAPTURE");
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("image/*");
+            startActivityForResult(intent, QR_IMAGE_REQ);
+            writeDiagnostic("QR_IMAGE_PICKER_LAUNCHED", "ACTION_OPEN_DOCUMENT");
         } catch (Exception error) {
-            writeDiagnostic("SYSTEM_CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
-            new AlertDialog.Builder(this)
-                    .setTitle("تعذّر فتح كاميرا الجهاز")
-                    .setMessage("لا يوجد تطبيق كاميرا متاح. افتح صلاحية الكاميرا أو استخدم الربط اليدوي.")
-                    .setPositiveButton("إعدادات التطبيق", (dialog, which) -> openAppSettings())
-                    .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
-                    .show();
+            writeDiagnostic("QR_IMAGE_PICKER_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
+            manualPair();
         }
     }
 
@@ -658,8 +640,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != CAMERA_REQ) return;
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            if (requestPhotoAfterPermission) launchPhotoCamera();
-            else launchScanner();
+            launchScanner();
             return;
         }
         new AlertDialog.Builder(this)
@@ -739,9 +720,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request == CAMERA_PHOTO_REQ) {
-            if (result == RESULT_OK) decodeQrPhoto(data);
-            else writeDiagnostic("SYSTEM_CAMERA_CANCELLED", "result=" + result);
+        if (request == QR_IMAGE_REQ) {
+            if (result == RESULT_OK && data != null && data.getData() != null) {
+                decodeQrImage(data.getData());
+            } else {
+                writeDiagnostic("QR_IMAGE_PICKER_CANCELLED", "result=" + result);
+            }
             return;
         }
         IntentResult qr = IntentIntegrator.parseActivityResult(request, result, data);
@@ -760,7 +744,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
     }
 
-    private void decodeQrPhoto(Intent data) {
+    private void decodeQrImage(Uri uri) {
+        Intent data = new Intent();
+        data.setData(uri);
+        decodeQrBitmap(data);
+    }
+
+    private void decodeQrBitmap(Intent data) {
         Bitmap bitmap = null;
         try {
             if (data != null && data.getExtras() != null) {
@@ -789,14 +779,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 reader.reset();
                 decoded = reader.decode(new BinaryBitmap(new HybridBinarizer(source.invert())), hints);
             }
-            writeDiagnostic("SYSTEM_QR_DECODED", width + "x" + height);
+            writeDiagnostic("QR_IMAGE_DECODED", width + "x" + height);
             pairText(decoded.getText());
         } catch (Exception error) {
-            writeDiagnostic("SYSTEM_QR_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
+            writeDiagnostic("QR_IMAGE_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
             new AlertDialog.Builder(this)
                     .setTitle("لم يظهر QR بوضوح")
-                    .setMessage("قرّب الكاميرا من QR وثبّت الصورة ثم حاول مرة أخرى.")
-                    .setPositiveButton("إعادة التصوير", (dialog, which) -> preparePhotoCamera())
+                    .setMessage("قرّب الكاميرا من QR أو اختر صورة أوضح ثم حاول مرة أخرى.")
+                    .setPositiveButton("فتح الكاميرا", (dialog, which) -> prepareLiveScanner())
                     .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
                     .show();
         }
@@ -830,7 +820,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private void setConnectionState(String value, boolean ok) {
         if (status == null || statusDot == null) return;
         status.setText(value);
-        statusDot.setTextColor(ok ? 0xFF159A63 : accent);
+        status.setTextColor(ok ? 0xFF176B46 : 0xFF5F6368);
+        statusDot.setTextColor(ok ? 0xFF188038 : accent);
+        if (statusChip != null) {
+            statusChip.setBackground(round(ok ? 0xFFE6F4EA : 0xFFF1F3F4, 20));
+        }
     }
 
     private void showToast(String value) {
@@ -891,6 +885,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 setConnectionState("متصل", true);
                 scheduleIdle(30000);
             } else {
+                addOrderColumns();
                 for (OrderState.Item item : order.items) addOrderRow(item);
             }
             total.setText(String.format(Locale.US, "%.2f ر.س", order.total));
@@ -933,24 +928,39 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(compact ? 8 : 12), dp(compact ? 7 : 10), dp(compact ? 8 : 12), dp(compact ? 7 : 10));
-        row.setBackground(round(0xFFF9F8FA, 14));
+        row.setPadding(dp(compact ? 10 : 14), dp(compact ? 8 : 11), dp(compact ? 10 : 14), dp(compact ? 8 : 11));
+        row.setBackground(strokeBg(Color.WHITE, 0xFFE8EAED, 16));
 
-        TextView qty = text("× " + formatQuantity(item.qty), compact ? 13 : 15, accent);
+        TextView qty = text(formatQuantity(item.qty) + " ×", compact ? 13 : 15, accent);
         qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         qty.setGravity(Gravity.CENTER);
-        qty.setBackground(round(lighten(accent, 0.92f), 12));
-        qty.setPadding(dp(9), dp(5), dp(9), dp(5));
+        qty.setBackground(round(lighten(accent, 0.92f), 14));
+        qty.setPadding(dp(10), dp(6), dp(10), dp(6));
+
+        LinearLayout nameBlock = new LinearLayout(this);
+        nameBlock.setOrientation(LinearLayout.VERTICAL);
+        nameBlock.setGravity(Gravity.CENTER_VERTICAL);
         TextView name = text(item.name, compact ? 16 : 20, 0xFF2D2930);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         name.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        name.setMinHeight(dp(compact ? 42 : 50));
         name.setMaxLines(2);
-        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 14 : 19, 0xFF57515B);
+        name.setPadding(dp(8), 0, dp(8), 0);
+        nameBlock.addView(name);
+        TextView unitPrice = text(
+                String.format(Locale.US, "سعر الوحدة  %.2f ر.س", item.unitPrice),
+                compact ? 11 : 13,
+                0xFF747078
+        );
+        unitPrice.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        unitPrice.setPadding(dp(8), 0, dp(8), 0);
+        nameBlock.addView(unitPrice);
+
+        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, 0xFF202124);
+        price.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
 
         row.addView(price, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
-        row.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(nameBlock, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         row.addView(qty);
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -961,6 +971,26 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         row.setAlpha(0f);
         row.setTranslationX(dp(20));
         row.animate().alpha(1f).translationX(0).setDuration(250).start();
+    }
+
+    private void addOrderColumns() {
+        LinearLayout columns = new LinearLayout(this);
+        columns.setOrientation(LinearLayout.HORIZONTAL);
+        columns.setGravity(Gravity.CENTER_VERTICAL);
+        columns.setPadding(dp(compact ? 10 : 14), dp(3), dp(compact ? 10 : 14), dp(3));
+
+        TextView totalColumn = text("الإجمالي", compact ? 10 : 12, 0xFF70757A);
+        totalColumn.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        TextView itemColumn = text("الصنف", compact ? 10 : 12, 0xFF70757A);
+        itemColumn.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        itemColumn.setPadding(dp(8), 0, dp(8), 0);
+        TextView quantityColumn = text("الكمية", compact ? 10 : 12, 0xFF70757A);
+        quantityColumn.setGravity(Gravity.CENTER);
+
+        columns.addView(totalColumn, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
+        columns.addView(itemColumn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        columns.addView(quantityColumn, new LinearLayout.LayoutParams(dp(compact ? 64 : 82), LinearLayout.LayoutParams.WRAP_CONTENT));
+        orderList.addView(columns);
     }
 
     private String formatQuantity(double quantity) {
