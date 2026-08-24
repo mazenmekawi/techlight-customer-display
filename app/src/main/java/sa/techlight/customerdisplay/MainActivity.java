@@ -111,19 +111,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private final Runnable idleTask = () -> {
         int mode = ui == null ? 0 : ui.getInt("able_mode", 0);
         if (mode == 0 || orderVisible) return;
-        AbleSignSession embeddedSession = new AbleSignSession(this);
-        if (mode == 1 && embeddedSession.isConfigured() && embeddedAble != null) {
-            embeddedAble.show(embeddedSession);
+        if (mode == 1 && embeddedAble != null) {
+            embeddedAble.show();
             return;
         }
-        if (able != null && able.openPlayer()) {
+        if (mode == 2 && able != null && able.openPlayer()) {
             ableExternalVisible = true;
             writeDiagnostic("ABLESIGN_EXTERNAL", "Opened installed AbleSign compatibility player");
             return;
         }
-        showToast(mode == 1
-                ? "أكمل API Key ورقم شاشة AbleSign من الإعدادات"
-                : "AbleSign غير مثبت على الجهاز");
+        showToast("تطبيق AbleSign غير مثبت؛ اختر المشغّل المدمج من الإعدادات");
     };
 
     @Override public void onCreate(Bundle state) {
@@ -344,6 +341,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             writeDiagnostic(error ? "ABLESIGN_ERROR" : "ABLESIGN_EMBEDDED", message);
             if (error) showToast(message);
         });
+        if (ui.getBoolean("able_reset_requested", false)) {
+            ui.edit().putBoolean("able_reset_requested", false).apply();
+            embeddedAble.resetPairing();
+        }
         addHiddenSettingsButton();
         setContentView(shell);
         animateEntrance();
@@ -1019,6 +1020,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         runOnUiThread(() -> {
             setConnectionState("متصل — بانتظار البيانات", true);
             showEmptyOrder("تم فتح اتصال Tech Pro", "بانتظار أول fullSnapshot من شاشة الكاشير");
+            if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
         });
     }
 
