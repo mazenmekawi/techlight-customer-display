@@ -13,6 +13,13 @@ public final class OrderMomentPolicyTest {
         assertEquals(10000L, OrderMomentPolicy.completionDisplayMs(10000L));
     }
 
+    @Test public void quantityMotionUsesGreenForAddsAndRedForRemovals() {
+        assertEquals(1, OrderMomentPolicy.quantityDirection(Double.NaN, 1, true));
+        assertEquals(1, OrderMomentPolicy.quantityDirection(1, 2, false));
+        assertEquals(-1, OrderMomentPolicy.quantityDirection(2, 1, false));
+        assertEquals(0, OrderMomentPolicy.quantityDirection(2, 2, false));
+    }
+
     @Test public void clearingAnActiveOrderShowsReceiptAndKeepsFinalTotal() {
         boolean event = OrderMomentPolicy.isCompletionEvent(true, true, false, 0);
         assertTrue(event);

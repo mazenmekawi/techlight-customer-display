@@ -35,6 +35,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -74,6 +75,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private static final int QR_IMAGE_REQ = 503;
     private static final int SETTINGS_REQ = 77;
     private static final long SETTINGS_VISIBLE_MS = 6500;
+    private static final long ITEM_ENTRY_MS = 460L;
 
     private FrameLayout shell;
     private LinearLayout root;
@@ -194,38 +196,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         overlay.setBackground(background);
         overlay.setClickable(true);
 
-        LinearLayout brandStack = new LinearLayout(this);
-        brandStack.setOrientation(LinearLayout.VERTICAL);
-        brandStack.setGravity(Gravity.CENTER);
-        brandStack.setTranslationY(-dp(compact ? 24 : 34));
-
-        FrameLayout glowHost = new FrameLayout(this);
-        glowHost.setBackground(brandGlowBackground(compact ? 150 : 220));
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.techlight_brand_transparent);
+        logo.setImageResource(R.drawable.techlight_mark);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        logo.setPadding(dp(compact ? 26 : 38), dp(12), dp(compact ? 26 : 38), dp(12));
-        glowHost.addView(logo, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                Gravity.CENTER
-        ));
-        brandStack.addView(glowHost, new LinearLayout.LayoutParams(
-                dp(compact ? 320 : 500), dp(compact ? 106 : 154)
-        ));
-
-        TextView website = text("techlight.sa", compact ? 14 : 18, Color.WHITE);
-        website.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        website.setGravity(Gravity.CENTER);
-        website.setLetterSpacing(0.10f);
-        website.setShadowLayer(dp(10), 0, 0, 0xCCB97BFF);
-        brandStack.addView(website, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
-        overlay.addView(brandStack, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+        logo.setTranslationY(-dp(compact ? 22 : 30));
+        overlay.addView(logo, new FrameLayout.LayoutParams(
+                dp(compact ? 126 : 176),
+                dp(compact ? 126 : 176),
                 Gravity.CENTER
         ));
         shell.addView(overlay, new FrameLayout.LayoutParams(
@@ -233,10 +210,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        brandStack.setAlpha(0f);
-        brandStack.setScaleX(0.94f);
-        brandStack.setScaleY(0.94f);
-        brandStack.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(310)
+        logo.setAlpha(0f);
+        logo.setScaleX(0.90f);
+        logo.setScaleY(0.90f);
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(310)
                 .setInterpolator(new DecelerateInterpolator()).start();
         handler.postDelayed(() -> {
             if (overlay.getParent() != shell) return;
@@ -710,7 +687,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 taxValue = addSummaryMetric(metrics, "الضريبة", "0.00");
                 discountValue = addSummaryMetric(metrics, "الخصم", "0.00");
             }
-            int metricSymbolSize = portrait ? 15 : (compact ? 14 : 16);
+            int metricSymbolSize = portrait ? 17 : (compact ? 16 : 18);
             subtotalValue.setText(money(0, metricSymbolSize, Color.WHITE));
             taxValue.setText(money(0, metricSymbolSize, Color.WHITE));
             discountValue.setText(money(0, metricSymbolSize, Color.WHITE));
@@ -750,18 +727,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             ));
         }
 
-        TextView totalLabel = text("الإجمالي", portrait ? 18 : (compact ? 12 : 15), 0xFFEEDFF7);
+        TextView totalLabel = text("الإجمالي", portrait ? 20 : (compact ? 14 : 17), 0xFFEEDFF7);
         totalLabel.setGravity(Gravity.CENTER);
         totalLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         totalLabel.setPadding(dp(portrait ? 10 : 0), dp(portrait ? 0 : (compact ? 7 : 9)),
                 dp(portrait ? 10 : 0), dp(portrait ? 0 : 2));
         if (portrait) totalPanel.addView(totalLabel);
         else totalPanel.addView(totalLabel);
-        total = text("0.00", portrait ? 44 : (compact ? 32 : 42), Color.WHITE);
+        total = text("0.00", portrait ? 48 : (compact ? 36 : 46), Color.WHITE);
         total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         total.setGravity(Gravity.CENTER);
         total.setPadding(dp(8), 0, dp(8), 0);
-        total.setText(money(0, portrait ? 34 : (compact ? 26 : 34), Color.WHITE));
+        total.setText(money(0, portrait ? 37 : (compact ? 29 : 37), Color.WHITE));
         totalPanel.addView(total, portrait
                 ? new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1)
                 : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -774,7 +751,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         LinearLayout.LayoutParams companyParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(portrait ? 66 : (compact ? 68 : 78))
+                dp(portrait ? 72 : (compact ? 72 : 82))
         );
         companyParams.setMargins(dp(portrait ? 24 : 16), 0,
                 dp(portrait ? 24 : 16), dp(5));
@@ -791,7 +768,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             );
             LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(showBreakdown ? 250 : 196)
+                    dp(showBreakdown ? 266 : 208)
             );
             dashboard.addView(orderCard, orderParams);
             dashboard.addView(summary, summaryParams);
@@ -801,7 +778,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 2.65f : 3.35f
             );
             LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 0.92f : 1.05f
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 1.05f : 1.18f
             );
             if (template == 2) {
                 dashboard.addView(summary, summaryParams);
@@ -881,21 +858,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
         block.setGravity(Gravity.CENTER);
-        block.setTranslationY(-dp(3));
 
-        FrameLayout glowHost = new FrameLayout(this);
-        glowHost.setBackground(brandGlowBackground(portrait ? 112 : 132));
         ImageView brand = new ImageView(this);
-        brand.setImageResource(R.drawable.techlight_brand_transparent);
+        brand.setImageResource(R.drawable.techlight_mark);
         brand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        brand.setPadding(dp(12), dp(5), dp(12), dp(4));
-        glowHost.addView(brand, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                Gravity.CENTER
-        ));
-        block.addView(glowHost, new LinearLayout.LayoutParams(
-                dp(portrait ? 164 : (compact ? 158 : 184)),
+        block.addView(brand, new LinearLayout.LayoutParams(
+                dp(portrait ? 43 : (compact ? 44 : 51)),
                 0,
                 1
         ));
@@ -904,29 +872,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         website.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         website.setGravity(Gravity.CENTER);
         website.setLetterSpacing(0.08f);
-        website.setShadowLayer(dp(6), 0, 0, 0xCCB974FF);
         block.addView(website, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-
-        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.86f, 1f);
-        shine.setDuration(2100);
-        shine.setRepeatMode(ValueAnimator.REVERSE);
-        shine.setRepeatCount(ValueAnimator.INFINITE);
-        shine.start();
-        decorativeAnimators.add(shine);
         return block;
-    }
-
-    private GradientDrawable brandGlowBackground(int radiusDp) {
-        GradientDrawable glow = new GradientDrawable();
-        glow.setShape(GradientDrawable.OVAL);
-        glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        glow.setGradientCenter(0.5f, 0.5f);
-        glow.setGradientRadius(dp(radiusDp));
-        glow.setColors(new int[]{0xF5FFFFFF, 0xAEEBDDFF, 0x38C69AFF, 0x00FFFFFF});
-        return glow;
     }
 
     private TextView addSummaryMetric(LinearLayout host, String label, String initialValue) {
@@ -934,10 +884,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(compact ? 6 : 8), 0, dp(compact ? 6 : 8));
-        TextView name = text(label, compact ? 14 : 16, 0xFFE7DAF0);
+        TextView name = text(label, compact ? 15 : 18, 0xFFE7DAF0);
         name.setPadding(0, 0, 0, 0);
         row.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        TextView value = text(initialValue, compact ? 15 : 17, Color.WHITE);
+        TextView value = text(initialValue, compact ? 17 : 20, Color.WHITE);
         value.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         value.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         value.setPadding(0, 0, 0, 0);
@@ -951,11 +901,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER);
         column.setPadding(dp(4), dp(3), dp(4), dp(3));
-        TextView name = text(label, 13, 0xFFE7DAF0);
+        TextView name = text(label, 14, 0xFFE7DAF0);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, 0, 0, dp(1));
         column.addView(name);
-        TextView value = text(initialValue, 16, Color.WHITE);
+        TextView value = text(initialValue, 18, Color.WHITE);
         value.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         value.setGravity(Gravity.CENTER);
         value.setPadding(0, 0, 0, 0);
@@ -995,7 +945,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         String customerMessage = ui == null
                 ? "تم اعتماد طلبك بنجاح"
                 : ui.getString("completed_message", "تم اعتماد طلبك بنجاح");
-        showCustomerMoment(true, customerMessage, "تم إنشاء فاتورتك", "تحولت الأصناف إلى فاتورة سعودية معتمدة");
+        showCustomerMoment(true, customerMessage, "تم إنشاء فاتورتك", "اكتملت العملية بنجاح");
     }
 
     private void showCustomerMoment(
@@ -1028,13 +978,15 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         message.setPadding(dp(8), 0, dp(8), dp(3));
         empty.addView(message);
 
-        CustomerMomentView moment = new CustomerMomentView(this, cooking, accent, dark);
-        LinearLayout.LayoutParams momentParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(portrait ? 220 : (compact ? 236 : 300))
-        );
-        momentParams.setMargins(0, dp(3), 0, dp(3));
-        empty.addView(moment, momentParams);
+        if (cooking) {
+            CustomerMomentView moment = new CustomerMomentView(this, true, accent, dark);
+            LinearLayout.LayoutParams momentParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(portrait ? 220 : (compact ? 236 : 300))
+            );
+            momentParams.setMargins(0, dp(3), 0, dp(3));
+            empty.addView(moment, momentParams);
+        }
 
         TextView emptyTitle = text(heading, portrait ? 15 : (compact ? 14 : 18), accent);
         emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -1703,7 +1655,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 .scaleX(1f)
                 .scaleY(1f)
                 .rotation(0f)
-                .setDuration(330)
+                .setDuration(ITEM_ENTRY_MS)
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
     }
@@ -1716,7 +1668,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
         double tax = order.taxIncluded ? order.tax : 0;
         double discount = order.discountIncluded ? Math.abs(order.discount) : 0;
-        int metricSymbolSize = portrait ? 15 : (compact ? 14 : 16);
+        int metricSymbolSize = portrait ? 17 : (compact ? 16 : 18);
         if (subtotalValue != null) subtotalValue.setText(money(subtotal, metricSymbolSize, Color.WHITE));
         if (taxValue != null) taxValue.setText(money(tax, metricSymbolSize, Color.WHITE));
         if (discountValue != null) {
@@ -1747,11 +1699,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         if (total == null) return;
         if (totalAnimator != null) totalAnimator.cancel();
         totalAnimator = ValueAnimator.ofFloat((float) renderedTotal, (float) target);
-        totalAnimator.setDuration(360);
+        totalAnimator.setDuration(ITEM_ENTRY_MS);
         totalAnimator.setInterpolator(new DecelerateInterpolator());
         totalAnimator.addUpdateListener(value -> total.setText(money(
                 ((Float) value.getAnimatedValue()).doubleValue(),
-                portrait ? 34 : (compact ? 26 : 34),
+                portrait ? 37 : (compact ? 29 : 37),
                 Color.WHITE
         )));
         totalAnimator.start();
@@ -1759,7 +1711,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         total.setScaleX(0.92f);
         total.setScaleY(0.92f);
         total.setAlpha(0.82f);
-        total.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(320)
+        total.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(ITEM_ENTRY_MS)
                 .setInterpolator(new DecelerateInterpolator()).start();
         renderedTotal = target;
     }
@@ -1788,6 +1740,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void renderOrderRows(OrderState order) {
         if (orderList == null || order == null || order.items == null) return;
+        boolean hadRenderedRows = !renderedRows.isEmpty();
         Map<String, Integer> occurrences = new LinkedHashMap<>();
         Map<String, OrderState.Item> incoming = new LinkedHashMap<>();
         for (int sourceIndex = 0; sourceIndex < order.items.size(); sourceIndex++) {
@@ -1802,7 +1755,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         stale.removeAll(incoming.keySet());
         for (String key : stale) {
             View row = renderedRows.remove(key);
-            if (row != null) orderList.removeView(row);
+            if (row != null) animateRemovedRow(row);
         }
 
         List<String> previousVisualOrder = new ArrayList<>();
@@ -1820,7 +1773,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 incoming.keySet(), renderedRows.keySet(), previousVisualOrder
         );
 
-        if (renderedRows.isEmpty()) orderList.removeAllViews();
+        if (!hadRenderedRows) orderList.removeAllViews();
         int targetIndex = 0;
         boolean hasNewRow = false;
         for (String key : displayOrder) {
@@ -1851,6 +1804,30 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         renderedItemKeys.clear();
         renderedItemKeys.addAll(incoming.keySet());
         if (hasNewRow && orderScroll != null) orderScroll.smoothScrollTo(0, 0);
+    }
+
+    private void animateRemovedRow(View row) {
+        if (row == null) return;
+        RowHolder holder = row.getTag() instanceof RowHolder ? (RowHolder) row.getTag() : null;
+        if (holder != null && holder.highlightAnimator != null) {
+            holder.highlightAnimator.cancel();
+            holder.highlightAnimator = null;
+        }
+        int red = 0xFFD63C4A;
+        int fillColor = dark ? mix(red, surfaceColor, 0.76f) : mix(red, Color.WHITE, 0.88f);
+        row.setBackground(strokeBg(fillColor, red, rowStyle == 1 ? 9 : 19));
+        row.animate().cancel();
+        row.animate()
+                .alpha(0f)
+                .translationX(-dp(28))
+                .scaleX(0.97f)
+                .scaleY(0.90f)
+                .setDuration(360)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(() -> {
+                    if (row.getParent() == orderList) orderList.removeView(row);
+                })
+                .start();
     }
 
     private View createOrderRow() {
@@ -1941,8 +1918,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 newlyAdded ? mix(accent, borderColor, 0.30f) : normalStroke,
                 radius
         ));
-        boolean quantityChanged = !Double.isNaN(holder.lastQuantity)
-                && Math.abs(holder.lastQuantity - item.qty) > 0.00001;
+        double previousQuantity = holder.lastQuantity;
+        int quantityDirection = OrderMomentPolicy.quantityDirection(
+                previousQuantity, item.qty, newlyAdded
+        );
+        boolean quantityChanged = !Double.isNaN(previousQuantity)
+                && Math.abs(previousQuantity - item.qty) > 0.00001;
+        boolean quantityIncreased = quantityDirection > 0;
+        boolean quantityDecreased = quantityDirection < 0;
         boolean totalChanged = !Double.isNaN(holder.lastTotal)
                 && Math.abs(holder.lastTotal - item.total()) > 0.00001;
         holder.quantity.setText(formatQuantity(item.qty) + " ×");
@@ -1961,16 +1944,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             holder.image.setImageDrawable(null);
         } else if (!imagePath.equals(holder.imagePath)) {
             holder.imagePath = imagePath;
-            holder.imageFrame.setVisibility(View.GONE);
+            holder.imageFrame.animate().cancel();
+            holder.imageFrame.setVisibility(View.VISIBLE);
+            holder.imageFrame.setAlpha(1f);
+            holder.imageFrame.setTranslationY(0f);
+            holder.imageFrame.setScaleX(1f);
+            holder.imageFrame.setScaleY(1f);
+            holder.image.setAlpha(0f);
             imageLoader.load(imagePath, holder.image, () -> {
                 if (!imagePath.equals(holder.imagePath)) return;
-                holder.imageFrame.setVisibility(View.VISIBLE);
-                holder.imageFrame.setAlpha(0f);
-                holder.imageFrame.setTranslationY(-dp(10));
-                holder.imageFrame.setScaleX(0.92f);
-                holder.imageFrame.setScaleY(0.92f);
-                holder.imageFrame.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f)
-                        .setDuration(340)
+                holder.image.animate().cancel();
+                holder.image.animate().alpha(1f)
+                        .setDuration(180)
                         .setInterpolator(new DecelerateInterpolator()).start();
             });
         }
@@ -1978,42 +1963,60 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         if (newlyAdded) {
             view.animate().cancel();
             view.setAlpha(0f);
-            view.setTranslationY(-dp(24));
-            view.setTranslationX(dp(8));
-            view.setScaleX(0.96f);
-            view.setScaleY(0.96f);
+            view.setTranslationY(-dp(22));
+            view.setTranslationX(dp(18));
+            view.setScaleX(0.965f);
+            view.setScaleY(0.92f);
             view.animate()
                     .alpha(1f)
                     .translationY(0)
                     .translationX(0)
                     .scaleX(1f)
                     .scaleY(1f)
-                    .setDuration(420)
-                    .setInterpolator(new DecelerateInterpolator())
+                    .setDuration(ITEM_ENTRY_MS)
+                    .setInterpolator(new OvershootInterpolator(0.72f))
                     .start();
             animateCounter(holder.quantity, true);
             animateCounter(holder.lineTotal, false);
-            int highlightFill = dark ? mix(accent, surfaceColor, 0.70f) : lighten(accent, 0.93f);
-            int highlightStroke = mix(accent, borderColor, 0.30f);
-            holder.highlightAnimator = ValueAnimator.ofFloat(0f, 1f);
-            holder.highlightAnimator.setStartDelay(120);
-            holder.highlightAnimator.setDuration(680);
-            holder.highlightAnimator.setInterpolator(new DecelerateInterpolator());
-            holder.highlightAnimator.addUpdateListener(animation -> {
-                float progress = (Float) animation.getAnimatedValue();
-                view.setBackground(strokeBg(
-                        mix(highlightFill, normalFill, progress),
-                        mix(highlightStroke, normalStroke, progress),
-                        radius
-                ));
-            });
-            holder.highlightAnimator.start();
+            startRowFlash(view, holder, 0xFF169B55, normalFill, normalStroke, radius);
         } else {
             view.animate().cancel();
             view.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f).setDuration(180).start();
             if (quantityChanged) animateCounter(holder.quantity, true);
             if (totalChanged) animateCounter(holder.lineTotal, false);
+            if (quantityIncreased) {
+                startRowFlash(view, holder, 0xFF169B55, normalFill, normalStroke, radius);
+            } else if (quantityDecreased) {
+                startRowFlash(view, holder, 0xFFD63C4A, normalFill, normalStroke, radius);
+            }
         }
+    }
+
+    private void startRowFlash(
+            View view,
+            RowHolder holder,
+            int flashColor,
+            int normalFill,
+            int normalStroke,
+            int radius
+    ) {
+        int flashFill = dark
+                ? mix(flashColor, surfaceColor, 0.76f)
+                : mix(flashColor, Color.WHITE, 0.88f);
+        int flashStroke = mix(flashColor, normalStroke, 0.18f);
+        view.setBackground(strokeBg(flashFill, flashStroke, radius));
+        holder.highlightAnimator = ValueAnimator.ofFloat(0f, 1f);
+        holder.highlightAnimator.setDuration(560);
+        holder.highlightAnimator.setInterpolator(new DecelerateInterpolator());
+        holder.highlightAnimator.addUpdateListener(animation -> {
+            float progress = (Float) animation.getAnimatedValue();
+            view.setBackground(strokeBg(
+                    mix(flashFill, normalFill, progress),
+                    mix(flashStroke, normalStroke, progress),
+                    radius
+            ));
+        });
+        holder.highlightAnimator.start();
     }
 
     private LinearLayout createOrderColumns() {

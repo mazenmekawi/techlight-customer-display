@@ -12,26 +12,22 @@ import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.view.View;
 
-/** A lightweight four-second item-to-invoice story drawn without GIF or video allocations. */
+/** Four-second, interface-led order-to-invoice sequence with no mascot or video assets. */
 final class CustomerMomentView extends View {
     static final long COMPLETION_ANIMATION_MS = OrderMomentPolicy.COMPLETION_ANIMATION_MS;
 
-    private final boolean completed;
     private final int accent;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
-    private final Path path = new Path();
-    private final Drawable mascot;
+    private final Path receiptPath = new Path();
     private final Drawable riyal;
     private long startedAt;
-    private Shader halo;
+    private Shader focusGlow;
 
     CustomerMomentView(Context context, boolean completed, int accent, boolean dark) {
         super(context);
-        this.completed = completed;
         this.accent = accent;
-        this.mascot = context.getDrawable(R.drawable.techlight_mascot);
         this.riyal = context.getDrawable(R.drawable.ic_saudi_riyal);
         if (riyal != null) riyal.mutate().setTint(accent);
         stroke.setStyle(Paint.Style.STROKE);
@@ -47,13 +43,12 @@ final class CustomerMomentView extends View {
     }
 
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
-        float radius = Math.min(width, height) * 0.78f;
-        halo = new RadialGradient(
-                width * (completed ? 0.56f : 0.50f),
+        focusGlow = new RadialGradient(
+                width * 0.68f,
                 height * 0.50f,
-                radius,
-                new int[]{withAlpha(lighten(accent, 0.72f), 92), withAlpha(accent, 25), Color.TRANSPARENT},
-                new float[]{0f, 0.52f, 1f},
+                Math.min(width, height) * 0.78f,
+                new int[]{withAlpha(lighten(accent, 0.72f), 96), withAlpha(accent, 25), Color.TRANSPARENT},
+                new float[]{0f, 0.56f, 1f},
                 Shader.TileMode.CLAMP
         );
     }
@@ -62,242 +57,184 @@ final class CustomerMomentView extends View {
         super.onDraw(canvas);
         if (getWidth() <= 0 || getHeight() <= 0) return;
         long elapsedMs = Math.max(0L, SystemClock.uptimeMillis() - startedAt);
-        float seconds = elapsedMs / 1000f;
+        float seconds = Math.min(COMPLETION_ANIMATION_MS, elapsedMs) / 1000f;
         float unit = Math.min(getWidth(), getHeight());
 
-        fill.setShader(halo);
-        canvas.drawCircle(getWidth() * 0.53f, getHeight() * 0.50f, unit * 0.72f, fill);
+        fill.setShader(focusGlow);
+        canvas.drawCircle(getWidth() * 0.68f, getHeight() * 0.50f, unit * 0.74f, fill);
         fill.setShader(null);
-        drawCircuitField(canvas, seconds, unit);
-        drawMascot(canvas, seconds, unit);
 
-        if (completed) {
-            drawItemTransformation(canvas, seconds, unit);
-            drawSaudiReceipt(canvas, seconds, unit);
-            drawFinalPulse(canvas, seconds, unit);
-        } else {
-            drawIdleData(canvas, seconds, unit);
-        }
+        drawTechnicalGrid(canvas, seconds, unit);
+        drawOrderCards(canvas, seconds, unit);
+        drawDataStream(canvas, seconds, unit);
+        drawInvoice(canvas, seconds, unit);
+        drawSuccessPulse(canvas, seconds, unit);
 
-        if (isShown() && (!completed || elapsedMs < COMPLETION_ANIMATION_MS)) {
-            postInvalidateOnAnimation();
-        }
+        if (isShown() && elapsedMs < COMPLETION_ANIMATION_MS) postInvalidateOnAnimation();
     }
 
-    private void drawCircuitField(Canvas canvas, float seconds, float unit) {
+    private void drawTechnicalGrid(Canvas canvas, float seconds, float unit) {
+        float reveal = smooth(clamp(seconds / 1.2f));
         stroke.setStrokeWidth(Math.max(1f, unit * 0.004f));
-        for (int i = 0; i < 4; i++) {
-            float phase = completed
-                    ? clamp((seconds - i * 0.09f) / 1.45f)
-                    : 0.45f + 0.35f * (float) Math.sin(seconds * 0.9f + i);
-            stroke.setColor(withAlpha(accent, Math.round(18 + 34 * phase)));
-            float y = getHeight() * (0.23f + i * 0.17f);
-            float start = getWidth() * 0.08f;
-            float end = start + getWidth() * (0.30f + 0.50f * phase);
-            canvas.drawLine(start, y, end, y, stroke);
-            canvas.drawCircle(end, y, unit * 0.009f, stroke);
-        }
-    }
-
-    private void drawMascot(Canvas canvas, float seconds, float unit) {
-        float entrance = easeOutBack(clamp(seconds / 0.58f));
-        float bob = completed
-                ? (float) Math.sin(Math.min(seconds, 2.4f) * 3.1f) * unit * 0.006f * (1f - clamp(seconds / 3f))
-                : (float) Math.sin(seconds * 1.7f) * unit * 0.012f;
-        float desiredHeight = getHeight() * (completed ? 0.94f : 0.96f);
-        float ratio = mascot == null || mascot.getIntrinsicHeight() <= 0
-                ? 0.67f
-                : (float) mascot.getIntrinsicWidth() / mascot.getIntrinsicHeight();
-        float desiredWidth = Math.min(getWidth() * (completed ? 0.43f : 0.62f), desiredHeight * ratio);
-        desiredHeight = desiredWidth / ratio;
-        float finalX = getWidth() * (completed ? 0.34f : 0.50f);
-        float centerX = finalX - getWidth() * 0.10f * (1f - entrance);
-        float centerY = getHeight() * 0.51f + bob;
-
-        canvas.save();
-        canvas.translate(centerX, centerY);
-        canvas.scale(0.90f + entrance * 0.10f, 0.90f + entrance * 0.10f);
-        if (mascot != null) {
-            mascot.setBounds(
-                    Math.round(-desiredWidth * 0.5f),
-                    Math.round(-desiredHeight * 0.5f),
-                    Math.round(desiredWidth * 0.5f),
-                    Math.round(desiredHeight * 0.5f)
-            );
-            mascot.setAlpha(Math.round(255 * clamp(entrance)));
-            mascot.draw(canvas);
-            mascot.setAlpha(255);
-        } else {
-            fill.setColor(accent);
-            canvas.drawRect(-unit * 0.18f, -unit * 0.34f, unit * 0.18f, unit * 0.34f, fill);
-        }
-        canvas.restore();
-    }
-
-    private void drawIdleData(Canvas canvas, float seconds, float unit) {
+        stroke.setColor(withAlpha(accent, Math.round(25 + 28 * reveal)));
         for (int i = 0; i < 5; i++) {
-            float angle = seconds * 0.55f + i * ((float) Math.PI * 2f / 5f);
-            float x = getWidth() * 0.50f + (float) Math.cos(angle) * getWidth() * 0.31f;
-            float y = getHeight() * 0.50f + (float) Math.sin(angle) * getHeight() * 0.31f;
-            float pulse = 0.65f + 0.35f * (float) Math.sin(seconds * 1.8f + i);
-            fill.setColor(withAlpha(lighten(accent, 0.35f), Math.round(70 + 105 * pulse)));
-            canvas.drawCircle(x, y, unit * (0.014f + 0.006f * pulse), fill);
+            float y = getHeight() * (0.18f + i * 0.16f);
+            float end = getWidth() * (0.13f + reveal * 0.74f);
+            canvas.drawLine(getWidth() * 0.08f, y, end, y, stroke);
+            canvas.drawCircle(end, y, unit * 0.008f, stroke);
         }
-    }
-
-    private void drawItemTransformation(Canvas canvas, float seconds, float unit) {
         for (int i = 0; i < 3; i++) {
-            float appear = easeOutBack(clamp((seconds - i * 0.10f) / 0.48f));
-            float travel = smooth(clamp((seconds - 0.72f - i * 0.10f) / 1.42f));
-            float startX = getWidth() * (0.11f + i * 0.045f);
-            float startY = getHeight() * (0.28f + i * 0.105f);
-            float endX = getWidth() * 0.69f;
-            float endY = getHeight() * (0.42f + i * 0.065f);
-            float x = lerp(startX, endX, travel);
-            float y = lerp(startY, endY, travel)
-                    - (float) Math.sin(Math.PI * travel) * getHeight() * (0.15f + i * 0.012f);
-            float fade = travel < 0.82f ? 1f : 1f - (travel - 0.82f) / 0.18f;
-            float scale = Math.max(0f, appear) * (1f - 0.55f * travel);
-            drawProductToken(canvas, x, y, unit * 0.115f * scale, i, clamp(fade));
-        }
-
-        float stream = clamp((seconds - 0.88f) / 1.65f);
-        for (int i = 0; i < 9; i++) {
-            float local = clamp(stream * 1.34f - i * 0.065f);
-            float x = lerp(getWidth() * 0.40f, getWidth() * 0.72f, local);
-            float y = getHeight() * 0.36f
-                    + (float) Math.sin(local * Math.PI * 2f + i * 0.52f) * unit * 0.045f;
-            fill.setColor(withAlpha(i % 2 == 0 ? accent : lighten(accent, 0.48f),
-                    Math.round(190 * (1f - clamp((seconds - 2.35f) / 0.45f)))));
-            canvas.drawCircle(x, y, unit * (0.010f + (i % 3) * 0.003f), fill);
+            float x = getWidth() * (0.43f + i * 0.15f);
+            canvas.drawLine(x, getHeight() * 0.13f, x, getHeight() * 0.87f, stroke);
         }
     }
 
-    private void drawProductToken(Canvas canvas, float x, float y, float size, int type, float alpha) {
-        if (size <= 0f || alpha <= 0f) return;
+    private void drawOrderCards(Canvas canvas, float seconds, float unit) {
+        for (int i = 0; i < 3; i++) {
+            float enter = easeOutCubic(clamp((seconds - i * 0.10f) / 0.58f));
+            float transfer = smooth(clamp((seconds - 0.88f - i * 0.09f) / 1.18f));
+            float startX = getWidth() * 0.08f;
+            float finalX = getWidth() * 0.31f;
+            float targetX = getWidth() * 0.62f;
+            float x = lerp(startX - getWidth() * 0.18f, finalX, enter);
+            x = lerp(x, targetX, transfer);
+            float baseY = getHeight() * (0.30f + i * 0.20f);
+            float targetY = getHeight() * (0.42f + i * 0.055f);
+            float y = lerp(baseY, targetY, transfer)
+                    - (float) Math.sin(Math.PI * transfer) * getHeight() * 0.09f;
+            float disappear = transfer < 0.78f ? 1f : 1f - (transfer - 0.78f) / 0.22f;
+            float scale = (0.88f + 0.12f * enter) * (1f - 0.42f * transfer);
+            drawOrderCard(canvas, x, y, unit, i, scale, clamp(disappear));
+        }
+    }
+
+    private void drawOrderCard(
+            Canvas canvas,
+            float centerX,
+            float centerY,
+            float unit,
+            int index,
+            float scale,
+            float alpha
+    ) {
+        if (scale <= 0f || alpha <= 0f) return;
+        float width = getWidth() * 0.34f * scale;
+        float height = getHeight() * 0.14f * scale;
         int opacity = Math.round(255 * alpha);
         canvas.save();
-        canvas.translate(x, y);
-        canvas.rotate((type - 1) * 5f);
-        rect.set(-size + size * 0.06f, -size * 0.72f + size * 0.10f,
-                size + size * 0.06f, size * 0.72f + size * 0.10f);
-        fill.setColor(withAlpha(accent, Math.round(54 * alpha)));
-        canvas.drawRoundRect(rect, size * 0.24f, size * 0.24f, fill);
-        rect.set(-size, -size * 0.72f, size, size * 0.72f);
+        canvas.translate(centerX, centerY);
+
+        rect.set(-width * 0.5f + unit * 0.012f, -height * 0.5f + unit * 0.014f,
+                width * 0.5f + unit * 0.012f, height * 0.5f + unit * 0.014f);
+        fill.setColor(withAlpha(accent, Math.round(38 * alpha)));
+        canvas.drawRoundRect(rect, unit * 0.035f, unit * 0.035f, fill);
+        rect.set(-width * 0.5f, -height * 0.5f, width * 0.5f, height * 0.5f);
         fill.setColor(withAlpha(Color.WHITE, opacity));
-        canvas.drawRoundRect(rect, size * 0.24f, size * 0.24f, fill);
+        canvas.drawRoundRect(rect, unit * 0.035f, unit * 0.035f, fill);
+
+        float iconX = -width * 0.36f;
         fill.setColor(withAlpha(lighten(accent, 0.84f), opacity));
-        canvas.drawCircle(-size * 0.48f, 0, size * 0.30f, fill);
-        stroke.setStrokeWidth(Math.max(2f, size * 0.10f));
+        canvas.drawCircle(iconX, 0, height * 0.29f, fill);
         stroke.setColor(withAlpha(accent, opacity));
+        stroke.setStrokeWidth(Math.max(2f, unit * 0.010f));
+        drawProductGlyph(canvas, iconX, 0, height * 0.26f, index);
 
-        float cx = -size * 0.48f;
-        if (type == 0) {
-            rect.set(cx - size * 0.12f, -size * 0.13f, cx + size * 0.10f, size * 0.15f);
-            canvas.drawRoundRect(rect, size * 0.04f, size * 0.04f, stroke);
-            canvas.drawLine(cx - size * 0.16f, -size * 0.19f, cx + size * 0.14f, -size * 0.19f, stroke);
-            canvas.drawArc(cx + size * 0.04f, -size * 0.07f, cx + size * 0.20f, size * 0.10f,
-                    -82f, 165f, false, stroke);
-        } else if (type == 1) {
-            rect.set(cx - size * 0.15f, -size * 0.12f, cx + size * 0.15f, size * 0.16f);
-            canvas.drawRoundRect(rect, size * 0.03f, size * 0.03f, stroke);
-            canvas.drawArc(cx - size * 0.08f, -size * 0.22f, cx + size * 0.08f, 0,
-                    190f, 160f, false, stroke);
-        } else {
-            canvas.drawArc(cx - size * 0.18f, -size * 0.04f, cx + size * 0.18f, size * 0.16f,
-                    8f, 164f, false, stroke);
-            canvas.drawLine(cx - size * 0.18f, size * 0.05f, cx + size * 0.18f, size * 0.05f, stroke);
-            canvas.drawLine(cx, -size * 0.16f, cx, -size * 0.06f, stroke);
-        }
-
-        fill.setColor(withAlpha(0xFF493D51, opacity));
-        rect.set(-size * 0.02f, -size * 0.17f, size * 0.66f, -size * 0.08f);
-        canvas.drawRoundRect(rect, size * 0.04f, size * 0.04f, fill);
-        fill.setColor(withAlpha(0xFFB9AFBE, opacity));
-        rect.set(-size * 0.02f, size * 0.02f, size * 0.46f, size * 0.10f);
-        canvas.drawRoundRect(rect, size * 0.04f, size * 0.04f, fill);
+        float textLeft = -width * 0.18f;
+        drawLine(canvas, textLeft, -height * 0.18f, width * 0.44f, unit * 0.019f,
+                withAlpha(0xFF3E3544, opacity));
+        drawLine(canvas, textLeft, height * 0.11f, width * 0.30f, unit * 0.014f,
+                withAlpha(0xFFB7AEBB, opacity));
+        drawLine(canvas, width * 0.30f, height * 0.11f, width * 0.13f, unit * 0.014f,
+                withAlpha(accent, opacity));
         canvas.restore();
     }
 
-    private void drawSaudiReceipt(Canvas canvas, float seconds, float unit) {
-        float appear = easeOutBack(clamp((seconds - 1.62f) / 0.78f));
+    private void drawProductGlyph(Canvas canvas, float x, float y, float size, int type) {
+        if (type == 0) {
+            rect.set(x - size * 0.32f, y - size * 0.26f, x + size * 0.22f, y + size * 0.32f);
+            canvas.drawRoundRect(rect, size * 0.10f, size * 0.10f, stroke);
+            canvas.drawLine(x - size * 0.40f, y - size * 0.38f,
+                    x + size * 0.32f, y - size * 0.38f, stroke);
+        } else if (type == 1) {
+            rect.set(x - size * 0.38f, y - size * 0.24f, x + size * 0.38f, y + size * 0.30f);
+            canvas.drawRoundRect(rect, size * 0.09f, size * 0.09f, stroke);
+            canvas.drawArc(x - size * 0.21f, y - size * 0.48f,
+                    x + size * 0.21f, y, 188f, 164f, false, stroke);
+        } else {
+            canvas.drawArc(x - size * 0.44f, y - size * 0.10f,
+                    x + size * 0.44f, y + size * 0.30f, 7f, 166f, false, stroke);
+            canvas.drawLine(x - size * 0.44f, y + size * 0.05f,
+                    x + size * 0.44f, y + size * 0.05f, stroke);
+            canvas.drawLine(x, y - size * 0.38f, x, y - size * 0.14f, stroke);
+        }
+    }
+
+    private void drawDataStream(Canvas canvas, float seconds, float unit) {
+        float stream = clamp((seconds - 0.92f) / 1.45f);
+        float fade = 1f - clamp((seconds - 2.45f) / 0.36f);
+        for (int i = 0; i < 12; i++) {
+            float progress = clamp(stream * 1.34f - i * 0.052f);
+            float x = lerp(getWidth() * 0.42f, getWidth() * 0.73f, progress);
+            float y = getHeight() * 0.40f
+                    + (float) Math.sin(progress * Math.PI * 2f + i * 0.46f) * unit * 0.052f;
+            fill.setColor(withAlpha(i % 3 == 0 ? 0xFF159B55 : accent,
+                    Math.round(205 * fade * (0.55f + 0.45f * progress))));
+            canvas.drawCircle(x, y, unit * (0.008f + (i % 3) * 0.003f), fill);
+        }
+    }
+
+    private void drawInvoice(Canvas canvas, float seconds, float unit) {
+        float appear = easeOutBack(clamp((seconds - 1.55f) / 0.78f));
         if (appear <= 0f) return;
-        float width = getWidth() * 0.27f;
-        float height = getHeight() * 0.66f;
-        float centerX = getWidth() * 0.80f;
+        float width = getWidth() * 0.28f;
+        float height = getHeight() * 0.72f;
+        float centerX = getWidth() * 0.79f;
         float centerY = getHeight() * 0.51f;
 
         canvas.save();
         canvas.translate(centerX, centerY);
-        canvas.scale(0.18f + 0.82f * appear, 0.78f + 0.22f * appear);
-        canvas.rotate((1f - appear) * 6f);
+        canvas.scale(0.16f + 0.84f * appear, 0.80f + 0.20f * appear);
+        canvas.rotate((1f - appear) * 4f);
 
         float left = -width * 0.5f;
         float right = width * 0.5f;
         float top = -height * 0.5f;
         float bottom = height * 0.43f;
-        rect.set(left + unit * 0.015f, top + unit * 0.025f,
-                right + unit * 0.015f, bottom + unit * 0.075f);
-        fill.setColor(0x2C1B0B27);
+        rect.set(left + unit * 0.014f, top + unit * 0.024f,
+                right + unit * 0.014f, bottom + unit * 0.072f);
+        fill.setColor(0x30170524);
         canvas.drawRoundRect(rect, unit * 0.035f, unit * 0.035f, fill);
 
-        path.reset();
-        path.moveTo(left, top + unit * 0.038f);
-        path.quadTo(left, top, left + unit * 0.038f, top);
-        path.lineTo(right - unit * 0.038f, top);
-        path.quadTo(right, top, right, top + unit * 0.038f);
-        path.lineTo(right, bottom);
-        float tooth = width / 10f;
-        for (int i = 0; i < 5; i++) {
-            path.lineTo(right - tooth * (i * 2 + 1), bottom + unit * 0.050f);
-            path.lineTo(right - tooth * (i * 2 + 2), bottom);
-        }
-        path.lineTo(left, top + unit * 0.038f);
-        path.close();
+        buildReceiptPath(left, right, top, bottom, width, unit);
         fill.setColor(Color.WHITE);
-        canvas.drawPath(path, fill);
+        canvas.drawPath(receiptPath, fill);
 
-        rect.set(left, top, right, top + height * 0.16f);
+        rect.set(left, top, right, top + height * 0.17f);
         fill.setColor(accent);
         canvas.drawRoundRect(rect, unit * 0.030f, unit * 0.030f, fill);
-        fill.setColor(Color.WHITE);
-        path.reset();
-        float markX = left + width * 0.16f;
-        float markY = top + height * 0.08f;
-        float mark = unit * 0.030f;
-        path.moveTo(markX - mark, markY - mark * 0.70f);
-        path.lineTo(markX + mark, markY - mark * 0.70f);
-        path.lineTo(markX + mark * 0.72f, markY);
-        path.lineTo(markX + mark * 0.18f, markY);
-        path.lineTo(markX + mark * 0.18f, markY + mark);
-        path.lineTo(markX - mark * 0.16f, markY + mark * 0.72f);
-        path.lineTo(markX - mark * 0.16f, markY);
-        path.lineTo(markX - mark * 0.72f, markY);
-        path.close();
-        canvas.drawPath(path, fill);
+        drawTMark(canvas, left + width * 0.17f, top + height * 0.085f, unit * 0.033f);
+        drawLine(canvas, left + width * 0.34f, top + height * 0.066f,
+                width * 0.46f, unit * 0.017f, 0xDFFFFFFF);
+        drawLine(canvas, left + width * 0.34f, top + height * 0.108f,
+                width * 0.30f, unit * 0.012f, 0xAFFFFFFF);
 
-        float reveal = smooth(clamp((seconds - 2.05f) / 0.92f));
-        drawReceiptLine(canvas, left + width * 0.14f, top + height * 0.26f,
-                width * 0.72f * reveal, unit * 0.018f, 0xFFD3CBD9);
-        drawReceiptLine(canvas, left + width * 0.14f, top + height * 0.38f,
-                width * 0.44f * reveal, unit * 0.014f, 0xFFE6E1EA);
-        drawReceiptLine(canvas, left + width * 0.67f, top + height * 0.38f,
-                width * 0.19f * reveal, unit * 0.014f, withAlpha(accent, 190));
-        drawReceiptLine(canvas, left + width * 0.14f, top + height * 0.49f,
-                width * 0.36f * reveal, unit * 0.014f, 0xFFE6E1EA);
-        drawReceiptLine(canvas, left + width * 0.67f, top + height * 0.49f,
-                width * 0.19f * reveal, unit * 0.014f, withAlpha(accent, 190));
+        float reveal = smooth(clamp((seconds - 2.08f) / 0.90f));
+        drawLine(canvas, left + width * 0.13f, top + height * 0.27f,
+                width * 0.74f * reveal, unit * 0.016f, 0xFFD1CAD7);
+        drawInvoiceMetric(canvas, left, top, width, height, 0.38f, 0.47f, reveal);
+        drawInvoiceMetric(canvas, left, top, width, height, 0.49f, 0.38f, reveal);
+        drawInvoiceMetric(canvas, left, top, width, height, 0.60f, 0.43f, reveal);
 
-        stroke.setStrokeWidth(Math.max(1f, unit * 0.005f));
         stroke.setColor(0xFFE2DCE7);
-        canvas.drawLine(left + width * 0.14f, top + height * 0.61f,
-                right - width * 0.14f, top + height * 0.61f, stroke);
-        drawReceiptLine(canvas, left + width * 0.14f, top + height * 0.69f,
-                width * 0.42f * reveal, unit * 0.022f, accent);
-        if (riyal != null && reveal > 0.35f) {
-            int icon = Math.round(unit * 0.070f);
-            int x = Math.round(right - width * 0.14f - icon);
-            int y = Math.round(top + height * 0.65f);
+        stroke.setStrokeWidth(Math.max(1f, unit * 0.005f));
+        canvas.drawLine(left + width * 0.13f, top + height * 0.70f,
+                right - width * 0.13f, top + height * 0.70f, stroke);
+        drawLine(canvas, left + width * 0.13f, top + height * 0.78f,
+                width * 0.42f * reveal, unit * 0.024f, accent);
+        if (riyal != null && reveal > 0.32f) {
+            int icon = Math.round(unit * 0.073f);
+            int x = Math.round(right - width * 0.13f - icon);
+            int y = Math.round(top + height * 0.735f);
             riyal.setBounds(x, y, x + icon, y + icon);
             riyal.setAlpha(Math.round(255 * reveal));
             riyal.draw(canvas);
@@ -305,44 +242,81 @@ final class CustomerMomentView extends View {
         }
 
         float stamp = easeOutBack(clamp((seconds - 3.02f) / 0.58f));
-        if (stamp > 0f) {
-            float checkX = right - width * 0.23f;
-            float checkY = bottom - height * 0.11f;
-            float checkRadius = unit * 0.065f * stamp;
-            fill.setColor(0xFFE8F7EE);
-            canvas.drawCircle(checkX, checkY, checkRadius * 1.16f, fill);
-            fill.setColor(0xFF169B55);
-            canvas.drawCircle(checkX, checkY, checkRadius, fill);
-            stroke.setColor(Color.WHITE);
-            stroke.setStrokeWidth(Math.max(2f, unit * 0.018f));
-            canvas.drawLine(checkX - checkRadius * 0.43f, checkY,
-                    checkX - checkRadius * 0.10f, checkY + checkRadius * 0.34f, stroke);
-            canvas.drawLine(checkX - checkRadius * 0.10f, checkY + checkRadius * 0.34f,
-                    checkX + checkRadius * 0.50f, checkY - checkRadius * 0.40f, stroke);
-        }
+        if (stamp > 0f) drawApprovedStamp(canvas, right - width * 0.22f,
+                bottom - height * 0.09f, unit * 0.062f * stamp);
         canvas.restore();
     }
 
-    private void drawFinalPulse(Canvas canvas, float seconds, float unit) {
-        float progress = clamp((seconds - 3.10f) / 0.90f);
-        if (progress <= 0f) return;
-        float x = getWidth() * 0.80f;
-        float y = getHeight() * 0.51f;
-        stroke.setStrokeWidth(Math.max(1.5f, unit * 0.010f * (1f - progress * 0.55f)));
-        stroke.setColor(withAlpha(lighten(accent, 0.34f), Math.round(160 * (1f - progress))));
-        canvas.drawCircle(x, y, unit * (0.15f + progress * 0.29f), stroke);
-        for (int i = 0; i < 6; i++) {
-            float angle = (float) (Math.PI * 2f * i / 6f);
-            float distance = unit * (0.18f + progress * 0.28f);
-            fill.setColor(withAlpha(i % 2 == 0 ? accent : 0xFF169B55,
-                    Math.round(175 * (1f - progress))));
-            canvas.drawCircle(x + (float) Math.cos(angle) * distance,
-                    y + (float) Math.sin(angle) * distance,
-                    unit * 0.012f, fill);
+    private void buildReceiptPath(float left, float right, float top, float bottom, float width, float unit) {
+        receiptPath.reset();
+        receiptPath.moveTo(left, top + unit * 0.038f);
+        receiptPath.quadTo(left, top, left + unit * 0.038f, top);
+        receiptPath.lineTo(right - unit * 0.038f, top);
+        receiptPath.quadTo(right, top, right, top + unit * 0.038f);
+        receiptPath.lineTo(right, bottom);
+        float tooth = width / 10f;
+        for (int i = 0; i < 5; i++) {
+            receiptPath.lineTo(right - tooth * (i * 2 + 1), bottom + unit * 0.050f);
+            receiptPath.lineTo(right - tooth * (i * 2 + 2), bottom);
         }
+        receiptPath.lineTo(left, top + unit * 0.038f);
+        receiptPath.close();
     }
 
-    private void drawReceiptLine(Canvas canvas, float x, float y, float width, float height, int color) {
+    private void drawInvoiceMetric(
+            Canvas canvas,
+            float left,
+            float top,
+            float width,
+            float height,
+            float row,
+            float labelWidth,
+            float reveal
+    ) {
+        drawLine(canvas, left + width * 0.13f, top + height * row,
+                width * labelWidth * reveal, Math.max(2f, height * 0.018f), 0xFFE6E1EA);
+        drawLine(canvas, left + width * 0.69f, top + height * row,
+                width * 0.18f * reveal, Math.max(2f, height * 0.018f), withAlpha(accent, 190));
+    }
+
+    private void drawTMark(Canvas canvas, float x, float y, float size) {
+        fill.setColor(Color.WHITE);
+        receiptPath.reset();
+        receiptPath.moveTo(x - size, y - size * 0.72f);
+        receiptPath.lineTo(x + size, y - size * 0.72f);
+        receiptPath.lineTo(x + size * 0.72f, y);
+        receiptPath.lineTo(x + size * 0.18f, y);
+        receiptPath.lineTo(x + size * 0.18f, y + size);
+        receiptPath.lineTo(x - size * 0.16f, y + size * 0.72f);
+        receiptPath.lineTo(x - size * 0.16f, y);
+        receiptPath.lineTo(x - size * 0.72f, y);
+        receiptPath.close();
+        canvas.drawPath(receiptPath, fill);
+    }
+
+    private void drawApprovedStamp(Canvas canvas, float x, float y, float radius) {
+        fill.setColor(0xFFE8F7EE);
+        canvas.drawCircle(x, y, radius * 1.18f, fill);
+        fill.setColor(0xFF159B55);
+        canvas.drawCircle(x, y, radius, fill);
+        stroke.setColor(Color.WHITE);
+        stroke.setStrokeWidth(Math.max(2f, radius * 0.26f));
+        canvas.drawLine(x - radius * 0.42f, y, x - radius * 0.10f, y + radius * 0.33f, stroke);
+        canvas.drawLine(x - radius * 0.10f, y + radius * 0.33f,
+                x + radius * 0.50f, y - radius * 0.40f, stroke);
+    }
+
+    private void drawSuccessPulse(Canvas canvas, float seconds, float unit) {
+        float progress = clamp((seconds - 3.10f) / 0.90f);
+        if (progress <= 0f) return;
+        float x = getWidth() * 0.79f;
+        float y = getHeight() * 0.51f;
+        stroke.setStrokeWidth(Math.max(1.5f, unit * 0.010f * (1f - progress * 0.55f)));
+        stroke.setColor(withAlpha(0xFF159B55, Math.round(175 * (1f - progress))));
+        canvas.drawCircle(x, y, unit * (0.18f + progress * 0.29f), stroke);
+    }
+
+    private void drawLine(Canvas canvas, float x, float y, float width, float height, int color) {
         fill.setColor(color);
         rect.set(x, y, x + Math.max(0f, width), y + height);
         canvas.drawRoundRect(rect, height * 0.5f, height * 0.5f, fill);
@@ -359,6 +333,11 @@ final class CustomerMomentView extends View {
     private static float smooth(float value) {
         float x = clamp(value);
         return x * x * (3f - 2f * x);
+    }
+
+    private static float easeOutCubic(float value) {
+        float x = 1f - clamp(value);
+        return 1f - x * x * x;
     }
 
     private static float easeOutBack(float value) {
