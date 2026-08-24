@@ -44,6 +44,26 @@ public final class TechProProtocolTest {
         assertFalse(order.completed);
     }
 
+    @Test public void parsesObservedTechProSnapshotWithCompositeLineId() {
+        String message = "{\"type\":\"fullSnapshot\",\"payload\":{"
+                + "\"state\":\"showingOrder\",\"items\":[{"
+                + "\"id\":\"45463-49405-0-9\",\"nameAr\":\"ذره كوب\","
+                + "\"nameEn\":\"Corn cup\",\"qty\":1.0,\"unitPrice\":11.5,"
+                + "\"lineTotal\":11.5,\"isAddition\":false,\"additions\":[]}],"
+                + "\"subtotal\":10.0,\"discount\":0.0,\"tax\":1.5,\"total\":11.5,"
+                + "\"currency\":\"SAR\",\"isConnected\":true}}";
+
+        OrderState order = TechProClient.parseOrderMessage(message);
+        assertNotNull(order);
+        assertTrue(order.itemsIncluded);
+        assertEquals(1, order.items.size());
+        assertEquals("ذره كوب", order.items.get(0).name);
+        assertEquals(1.0, order.items.get(0).qty, 0.0001);
+        assertEquals(11.5, order.items.get(0).unitPrice, 0.0001);
+        assertEquals(11.5, order.items.get(0).total(), 0.0001);
+        assertEquals(11.5, order.total, 0.0001);
+    }
+
     @Test public void parsesRawSnapshotForCompatibility() {
         String message = "{\"state\":\"showingOrder\",\"items\":[{"
                 + "\"nameEn\":\"Water\",\"qty\":3,\"unitPrice\":2,\"lineTotal\":6"

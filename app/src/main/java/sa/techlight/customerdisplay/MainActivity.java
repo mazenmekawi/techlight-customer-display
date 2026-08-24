@@ -865,6 +865,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void connect(String ip, int port) {
+        // Reaching this method means a saved or newly validated pairing exists.
+        // Keep the in-memory flag in sync even when SharedPreferences/app UI is rebuilding.
+        paired = true;
         setConnectionState("جارٍ الاتصال", false);
         showEmptyOrder("جارٍ الاتصال بـ Tech Pro", ip + ":" + port);
         writeDiagnostic("CONNECTING", "ws://" + ip + ":" + port);
@@ -927,58 +930,78 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     @Override public void onOrder(OrderState order) {
-        int resolved = catalog == null ? 0 : catalog.enrich(order);
-        writeDiagnostic("ORDER_RENDERED", "items=" + order.items.size()
+        if (order == null) return;
+        int catalogResolved = 0;
+        try {
+            catalogResolved = catalog == null ? 0 : catalog.enrich(order);
+        } catch (Exception error) {
+            // Live snapshots already include the display name and price. A catalog problem
+            // must never prevent those authoritative values from reaching the customer.
+            writeDiagnostic("CATALOG_ENRICH_FAILED",
+                    error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
+        }
+        final int resolved = catalogResolved;
+        writeDiagnostic("ORDER_RECEIVED", "items=" + order.items.size()
                 + " — catalogResolved=" + resolved + " — total=" + order.total);
         runOnUiThread(() -> {
-            if (!paired) return;
-            bringCustomerDisplayForward();
-            handler.removeCallbacks(idleTask);
-            orderList.removeAllViews();
-            boolean empty = order.items == null || order.items.isEmpty();
-            int rows = empty ? 0 : order.items.size();
-            double units = 0;
-            if (!empty) {
-                for (OrderState.Item item : order.items) units += item.qty;
-            }
-            if (itemCount != null) {
-                itemCount.setText("الأصناف  " + rows);
-                itemCount.setScaleX(0.94f);
-                itemCount.setScaleY(0.94f);
-                itemCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
-            }
-            if (unitCount != null) {
-                unitCount.setText("القطع  " + formatQuantity(units));
-                unitCount.setScaleX(0.94f);
-                unitCount.setScaleY(0.94f);
-                unitCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
-            }
-            if (empty) {
-                if (order.total > 0.0001) {
-                    showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
+            try {
+                // A successfully parsed snapshot is stronger evidence than a stale UI flag.
+                paired = true;
+                if (orderList == null) buildUi();
+                handler.removeCallbacks(idleTask);
+                orderList.removeAllViews();
+                boolean empty = order.items == null || order.items.isEmpty();
+                int rows = empty ? 0 : order.items.size();
+                double units = 0;
+                if (!empty) {
+                    for (OrderState.Item item : order.items) units += item.qty;
+                }
+                if (itemCount != null) {
+                    itemCount.setText("الأصناف  " + rows);
+                    itemCount.setScaleX(0.94f);
+                    itemCount.setScaleY(0.94f);
+                    itemCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+                }
+                if (unitCount != null) {
+                    unitCount.setText("القطع  " + formatQuantity(units));
+                    unitCount.setScaleX(0.94f);
+                    unitCount.setScaleY(0.94f);
+                    unitCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+                }
+                if (empty) {
+                    if (order.total > 0.0001) {
+                        showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
+                    } else {
+                        showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                    }
+                    setConnectionState("متصل", true);
+                    if (ui.getInt("able_mode", 0) == 2) scheduleIdle(30000);
                 } else {
-                    showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                    addOrderColumns();
+                    Set<String> currentKeys = new HashSet<>();
+                    for (int index = 0; index < order.items.size(); index++) {
+                        OrderState.Item item = order.items.get(index);
+                        String key = itemKey(item);
+                        currentKeys.add(key);
+                        addOrderRow(item, index, !renderedItemKeys.contains(key));
+                    }
+                    renderedItemKeys.clear();
+                    renderedItemKeys.addAll(currentKeys);
                 }
-                setConnectionState("متصل", true);
-                if (ui.getInt("able_mode", 0) == 2) scheduleIdle(30000);
-            } else {
-                addOrderColumns();
-                Set<String> currentKeys = new HashSet<>();
-                for (int index = 0; index < order.items.size(); index++) {
-                    OrderState.Item item = order.items.get(index);
-                    String key = itemKey(item);
-                    currentKeys.add(key);
-                    addOrderRow(item, index, !renderedItemKeys.contains(key));
+                animateTotal(order.total);
+                if (order.completed) {
+                    setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
+                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(7000);
+                } else if (!empty) {
+                    setConnectionState("الطلب مباشر", true);
                 }
-                renderedItemKeys.clear();
-                renderedItemKeys.addAll(currentKeys);
-            }
-            animateTotal(order.total);
-            if (order.completed) {
-                setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
-                if (ui.getInt("able_mode", 0) > 0) scheduleIdle(7000);
-            } else if (!empty) {
-                setConnectionState("الطلب مباشر", true);
+                writeDiagnostic("ORDER_RENDERED", "items=" + rows
+                        + " — catalogResolved=" + resolved + " — total=" + order.total);
+                bringCustomerDisplayForward();
+            } catch (Exception error) {
+                writeDiagnostic("ORDER_RENDER_FAILED",
+                        error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
+                setConnectionState("وصل الطلب — تعذّر العرض", false);
             }
         });
     }
