@@ -194,21 +194,49 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         overlay.setBackground(background);
         overlay.setClickable(true);
 
+        LinearLayout brandStack = new LinearLayout(this);
+        brandStack.setOrientation(LinearLayout.VERTICAL);
+        brandStack.setGravity(Gravity.CENTER);
+        brandStack.setTranslationY(-dp(compact ? 24 : 34));
+
+        FrameLayout glowHost = new FrameLayout(this);
+        glowHost.setBackground(brandGlowBackground(compact ? 150 : 220));
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.techlight_brand_white_transparent);
+        logo.setImageResource(R.drawable.techlight_brand_transparent);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        int logoWidth = dp(compact ? 280 : 430);
-        int logoHeight = dp(compact ? 92 : 138);
-        overlay.addView(logo, new FrameLayout.LayoutParams(logoWidth, logoHeight, Gravity.CENTER));
+        logo.setPadding(dp(compact ? 26 : 38), dp(12), dp(compact ? 26 : 38), dp(12));
+        glowHost.addView(logo, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+        ));
+        brandStack.addView(glowHost, new LinearLayout.LayoutParams(
+                dp(compact ? 320 : 500), dp(compact ? 106 : 154)
+        ));
+
+        TextView website = text("techlight.sa", compact ? 14 : 18, Color.WHITE);
+        website.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        website.setGravity(Gravity.CENTER);
+        website.setLetterSpacing(0.10f);
+        website.setShadowLayer(dp(10), 0, 0, 0xCCB97BFF);
+        brandStack.addView(website, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        overlay.addView(brandStack, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        ));
         shell.addView(overlay, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        logo.setAlpha(0f);
-        logo.setScaleX(0.94f);
-        logo.setScaleY(0.94f);
-        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(310)
+        brandStack.setAlpha(0f);
+        brandStack.setScaleX(0.94f);
+        brandStack.setScaleY(0.94f);
+        brandStack.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(310)
                 .setInterpolator(new DecelerateInterpolator()).start();
         handler.postDelayed(() -> {
             if (overlay.getParent() != shell) return;
@@ -745,10 +773,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         summary.addView(totalPanel, totalPanelParams);
 
         LinearLayout.LayoutParams companyParams = new LinearLayout.LayoutParams(
-                dp(portrait ? 112 : (compact ? 110 : 134)),
-                dp(portrait ? 30 : (compact ? 30 : 36))
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(portrait ? 66 : (compact ? 68 : 78))
         );
-        companyParams.setMargins(0, dp(4), 0, dp(4));
+        companyParams.setMargins(dp(portrait ? 24 : 16), 0,
+                dp(portrait ? 24 : 16), dp(5));
         summary.addView(createCompanyBrand(), companyParams);
 
         LinearLayout dashboard = new LinearLayout(this);
@@ -762,7 +791,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             );
             LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(showBreakdown ? 214 : 160)
+                    dp(showBreakdown ? 250 : 196)
             );
             dashboard.addView(orderCard, orderParams);
             dashboard.addView(summary, summaryParams);
@@ -849,18 +878,55 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private View createCompanyBrand() {
-        ImageView brand = new ImageView(this);
-        brand.setImageResource(R.drawable.techlight_brand_white_transparent);
-        brand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        brand.setPadding(dp(3), dp(2), dp(3), dp(2));
+        LinearLayout block = new LinearLayout(this);
+        block.setOrientation(LinearLayout.VERTICAL);
+        block.setGravity(Gravity.CENTER);
+        block.setTranslationY(-dp(3));
 
-        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.62f, 1f);
-        shine.setDuration(2400);
+        FrameLayout glowHost = new FrameLayout(this);
+        glowHost.setBackground(brandGlowBackground(portrait ? 112 : 132));
+        ImageView brand = new ImageView(this);
+        brand.setImageResource(R.drawable.techlight_brand_transparent);
+        brand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        brand.setPadding(dp(12), dp(5), dp(12), dp(4));
+        glowHost.addView(brand, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+        ));
+        block.addView(glowHost, new LinearLayout.LayoutParams(
+                dp(portrait ? 164 : (compact ? 158 : 184)),
+                0,
+                1
+        ));
+
+        TextView website = text("techlight.sa", portrait ? 10 : (compact ? 10 : 11), Color.WHITE);
+        website.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        website.setGravity(Gravity.CENTER);
+        website.setLetterSpacing(0.08f);
+        website.setShadowLayer(dp(6), 0, 0, 0xCCB974FF);
+        block.addView(website, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.86f, 1f);
+        shine.setDuration(2100);
         shine.setRepeatMode(ValueAnimator.REVERSE);
         shine.setRepeatCount(ValueAnimator.INFINITE);
         shine.start();
         decorativeAnimators.add(shine);
-        return brand;
+        return block;
+    }
+
+    private GradientDrawable brandGlowBackground(int radiusDp) {
+        GradientDrawable glow = new GradientDrawable();
+        glow.setShape(GradientDrawable.OVAL);
+        glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        glow.setGradientCenter(0.5f, 0.5f);
+        glow.setGradientRadius(dp(radiusDp));
+        glow.setColors(new int[]{0xF5FFFFFF, 0xAEEBDDFF, 0x38C69AFF, 0x00FFFFFF});
+        return glow;
     }
 
     private TextView addSummaryMetric(LinearLayout host, String label, String initialValue) {
@@ -929,7 +995,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         String customerMessage = ui == null
                 ? "تم اعتماد طلبك بنجاح"
                 : ui.getString("completed_message", "تم اعتماد طلبك بنجاح");
-        showCustomerMoment(true, customerMessage, "كل شيء تمام", "تم تنفيذ الطلب واعتماد الفاتورة");
+        showCustomerMoment(true, customerMessage, "تم إنشاء فاتورتك", "تحولت الأصناف إلى فاتورة سعودية معتمدة");
     }
 
     private void showCustomerMoment(
@@ -964,8 +1030,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         CustomerMomentView moment = new CustomerMomentView(this, cooking, accent, dark);
         LinearLayout.LayoutParams momentParams = new LinearLayout.LayoutParams(
-                dp(portrait ? 190 : (compact ? 180 : 220)),
-                dp(portrait ? 190 : (compact ? 180 : 220))
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(portrait ? 220 : (compact ? 236 : 300))
         );
         momentParams.setMargins(0, dp(3), 0, dp(3));
         empty.addView(moment, momentParams);
@@ -1586,9 +1652,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 if (completionEvent) {
                     setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
                     orderVisible = false;
-                    completionMomentUntil = System.currentTimeMillis() + ableDelayMs();
+                    long completionDisplayMs = OrderMomentPolicy.completionDisplayMs(ableDelayMs());
+                    completionMomentUntil = System.currentTimeMillis() + completionDisplayMs;
                     showCompletionMoment();
-                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(ableDelayMs());
+                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(completionDisplayMs);
                 } else if (!empty && !order.completed) {
                     setConnectionState("الطلب مباشر", true);
                 }
@@ -1985,7 +2052,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private long ableDelayMs() {
         int seconds = ui == null ? 10 : ui.getInt("able_delay_seconds", 10);
-        return Math.max(3, Math.min(60, seconds)) * 1000L;
+        return Math.max(4, Math.min(60, seconds)) * 1000L;
     }
 
     @Override protected void onResume() {

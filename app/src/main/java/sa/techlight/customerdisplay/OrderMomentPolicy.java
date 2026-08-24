@@ -2,7 +2,13 @@ package sa.techlight.customerdisplay;
 
 /** Pure transition rules for the live-order, receipt and idle customer moments. */
 final class OrderMomentPolicy {
+    static final long COMPLETION_ANIMATION_MS = 4000L;
+
     private OrderMomentPolicy() { }
+
+    static long completionDisplayMs(long configuredDelayMs) {
+        return Math.max(COMPLETION_ANIMATION_MS, configuredDelayMs);
+    }
 
     static boolean isCompletionEvent(
             boolean empty,
