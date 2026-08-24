@@ -15,7 +15,7 @@ import java.util.Map;
 
 public final class ProductCatalog extends SQLiteOpenHelper {
     private static final String DB_NAME = "techpro_catalog.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
 
     public static final class Product {
         public long itemId;
@@ -24,6 +24,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
         public String itemCode = "";
         public String nameAr = "";
         public String nameEn = "";
+        public String imagePath = "";
         public double price;
 
         public Product copy() {
@@ -34,6 +35,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
             result.itemCode = itemCode;
             result.nameAr = nameAr;
             result.nameEn = nameEn;
+            result.imagePath = imagePath;
             result.price = price;
             return result;
         }
@@ -54,6 +56,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
                 + "item_code TEXT NOT NULL DEFAULT '', "
                 + "name_ar TEXT NOT NULL DEFAULT '', "
                 + "name_en TEXT NOT NULL DEFAULT '', "
+                + "image_path TEXT NOT NULL DEFAULT '', "
                 + "price REAL NOT NULL DEFAULT 0, "
                 + "PRIMARY KEY(item_id, unit_id, barcode))");
         db.execSQL("CREATE INDEX idx_catalog_barcode ON products(barcode)");
@@ -61,8 +64,9 @@ public final class ProductCatalog extends SQLiteOpenHelper {
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS products");
-        onCreate(db);
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE products ADD COLUMN image_path TEXT NOT NULL DEFAULT ''");
+        }
     }
 
     public synchronized int replaceAll(List<Product> incoming) {
@@ -90,6 +94,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
                 values.put("item_code", clean(product.itemCode));
                 values.put("name_ar", clean(product.nameAr));
                 values.put("name_en", clean(product.nameEn));
+                values.put("image_path", clean(product.imagePath));
                 values.put("price", product.price);
                 db.insertWithOnConflict("products", null, values, SQLiteDatabase.CONFLICT_REPLACE);
             }
@@ -177,6 +182,9 @@ public final class ProductCatalog extends SQLiteOpenHelper {
                 item.name = !clean(product.nameAr).isEmpty() ? product.nameAr : product.nameEn;
             }
             if (item.unitPrice <= 0.00001 && product.price > 0) item.unitPrice = product.price;
+            if (clean(item.imagePath).isEmpty() && !clean(product.imagePath).isEmpty()) {
+                item.imagePath = product.imagePath;
+            }
             if (item.itemId <= 0) item.itemId = product.itemId;
             if (item.unitId <= 0) item.unitId = product.unitId;
             resolved++;
@@ -192,6 +200,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
         product.itemCode = cursor.getString(cursor.getColumnIndexOrThrow("item_code"));
         product.nameAr = cursor.getString(cursor.getColumnIndexOrThrow("name_ar"));
         product.nameEn = cursor.getString(cursor.getColumnIndexOrThrow("name_en"));
+        product.imagePath = cursor.getString(cursor.getColumnIndexOrThrow("image_path"));
         product.price = cursor.getDouble(cursor.getColumnIndexOrThrow("price"));
         return product;
     }
@@ -201,6 +210,7 @@ public final class ProductCatalog extends SQLiteOpenHelper {
         if (clean(destination.itemCode).isEmpty()) destination.itemCode = clean(source.itemCode);
         if (clean(destination.nameAr).isEmpty()) destination.nameAr = clean(source.nameAr);
         if (clean(destination.nameEn).isEmpty()) destination.nameEn = clean(source.nameEn);
+        if (clean(destination.imagePath).isEmpty()) destination.imagePath = clean(source.imagePath);
         if (destination.price <= 0 && source.price > 0) destination.price = source.price;
         if (destination.unitId <= 0 && source.unitId > 0) destination.unitId = source.unitId;
     }

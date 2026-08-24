@@ -34,7 +34,8 @@ public final class TechProProtocolTest {
                 + "\"state\":\"showingOrder\","
                 + "\"items\":[{"
                 + "\"id\":\"1\",\"nameAr\":\"قهوة عربية\",\"nameEn\":\"Arabic coffee\","
-                + "\"qty\":2,\"unitPrice\":7.5,\"lineTotal\":15,\"isAddition\":false"
+                + "\"qty\":2,\"unitPrice\":7.5,\"lineTotal\":15,\"isAddition\":false,"
+                + "\"imagePath\":\"/uploads/items/arabic-coffee.png\""
                 + "}],"
                 + "\"subtotal\":15,\"discount\":0,\"tax\":2.25,\"total\":17.25,\"currency\":\"SAR\""
                 + "},"
@@ -47,6 +48,7 @@ public final class TechProProtocolTest {
         assertEquals("قهوة عربية", order.items.get(0).name);
         assertEquals(2.0, order.items.get(0).qty, 0.0001);
         assertEquals(15.0, order.items.get(0).total(), 0.0001);
+        assertEquals("/uploads/items/arabic-coffee.png", order.items.get(0).imagePath);
         assertEquals(17.25, order.total, 0.0001);
         assertFalse(order.completed);
     }
@@ -229,7 +231,8 @@ public final class TechProProtocolTest {
     @Test public void parsesTechProPagedCatalogWithNestedUnits() {
         String response = "{\"data\":{\"items\":[{\"id\":91,"
                 + "\"nameAr\":\"آيس لاتيه\",\"nameEn\":\"Iced Latte\","
-                + "\"itemCode\":\"LAT-91\",\"units\":[{\"id\":4,\"itemId\":91,"
+                + "\"itemCode\":\"LAT-91\",\"imagePath\":\"/uploads/items/latte.webp\","
+                + "\"units\":[{\"id\":4,\"itemId\":91,"
                 + "\"displayNameAr\":\"كوب\",\"unitBarcode\":\"62800091\","
                 + "\"salePrice\":15.0}]}]}}";
 
@@ -241,6 +244,20 @@ public final class TechProProtocolTest {
         assertNotNull(unit);
         assertEquals("آيس لاتيه", unit.nameAr);
         assertEquals("62800091", unit.barcode);
+        assertEquals("/uploads/items/latte.webp", unit.imagePath);
         assertEquals(15.0, unit.price, 0.0001);
+    }
+
+    @Test public void resolvesRelativeProductImagesAgainstBothTechProOrigins() {
+        List<String> urls = ProductImageLoader.candidateUrls("/uploads/items/latte.webp");
+        assertEquals(2, urls.size());
+        assertEquals("https://posapifornewapp.techlight.sa/uploads/items/latte.webp", urls.get(0));
+        assertEquals("https://posapi.techlight.sa/uploads/items/latte.webp", urls.get(1));
+    }
+
+    @Test public void keepsAbsoluteProductImageUrlUnchanged() {
+        List<String> urls = ProductImageLoader.candidateUrls("https://cdn.example.com/item.jpg");
+        assertEquals(1, urls.size());
+        assertEquals("https://cdn.example.com/item.jpg", urls.get(0));
     }
 }

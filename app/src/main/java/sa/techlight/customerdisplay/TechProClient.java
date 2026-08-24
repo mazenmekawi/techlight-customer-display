@@ -287,6 +287,10 @@ public final class TechProClient {
                 "barcode", "unitBarcode", "itemBarcode", "productBarcode", "item_barcode");
         item.itemCode = firstTextDeep(source,
                 "itemCode", "code", "itemNo", "productCode", "item_code");
+        item.imagePath = firstTextDeep(source,
+                "imagePath", "imageUrl", "itemImage", "itemImagePath", "productImage",
+                "photoPath", "photoUrl", "picturePath", "thumbnailURL", "image_path");
+        if (item.imagePath == null) item.imagePath = "";
         item.name = firstTextDeep(
                 source,
                 "itemName", "name", "productName", "displayNameAr", "itemNameAr",

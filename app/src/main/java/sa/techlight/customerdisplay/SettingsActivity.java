@@ -33,7 +33,7 @@ import java.util.Locale;
 public final class SettingsActivity extends Activity {
     private static final int PICK_LOGO = 42;
     private static final int RESYNC_CATALOG = 43;
-    private static final int ACCENT = 0xFF5B2A86;
+    private static final int ACCENT = 0xFF4D0E81;
 
     private SharedPreferences preferences;
     private EditText welcome;
@@ -44,6 +44,9 @@ public final class SettingsActivity extends Activity {
     private RadioGroup themeGroup;
     private RadioGroup orientationGroup;
     private RadioGroup ableGroup;
+    private EditText ableApiKey;
+    private EditText ableScreenId;
+    private EditText ableWorkspaceId;
     private int selectedTemplate;
     private final LinearLayout[] templateCards = new LinearLayout[2];
     private final TextView[] templateChecks = new TextView[2];
@@ -368,11 +371,11 @@ public final class SettingsActivity extends Activity {
                 "هذه البيانات فقط هي التي يراها العميل بعد الربط؛ شعار ضوء التقنية لا يظهر في واجهة الطلب."
         );
 
-        section.addView(fieldLabel("لون الهوية — مثال #5B2A86"));
-        color = input(preferences.getString("color", "#5B2A86"));
+        section.addView(fieldLabel("لون الهوية — اللون الأساسي في الشريط والحركات"));
+        color = input(preferences.getString("color", "#4D0E81"));
         section.addView(color);
         LinearLayout presets = new LinearLayout(this);
-        String[] colors = {"#5B2A86", "#111827", "#0F766E", "#B42318", "#1D4ED8"};
+        String[] colors = {"#4D0E81", "#832ACC", "#343F5A", "#0F766E", "#B42318", "#1D4ED8"};
         for (String value : colors) {
             TextView swatch = text("●", 28, Color.parseColor(value));
             swatch.setGravity(Gravity.CENTER);
@@ -428,24 +431,50 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "AbleSign والمحتوى الإعلاني",
-                "يعمل AbleSign كتطبيق مستقل، وتعود شاشة الطلب تلقائيًا إلى الواجهة فور وصول صنف جديد."
+                "يظهر المحتوى بعد 10 ثوانٍ من عدم وجود طلب، ويختفي فور وصول أول صنف. الوضع المدمج يبقي شاشة العميل متصلة دائمًا."
         );
         AbleSignController controller = new AbleSignController(this);
         boolean installed = controller.isInstalled();
-        TextView state = text(installed ? "●  AbleSign مثبت وجاهز" : "●  AbleSign غير مثبت على الجهاز", 14, installed ? 0xFF12805C : 0xFFB42318);
+        AbleSignSession embedded = new AbleSignSession(this);
+        boolean configured = embedded.isConfigured();
+        TextView state = text(
+                configured ? "●  المشغّل المدمج مضبوط وجاهز"
+                        : installed ? "●  تطبيق AbleSign مثبت — يمكنك استخدام وضع التوافق"
+                        : "●  أدخل API Key ورقم الشاشة لتفعيل المشغّل المدمج",
+                14,
+                configured || installed ? 0xFF12805C : 0xFF9A6700
+        );
         state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         state.setPadding(0, dp(3), 0, dp(8));
         section.addView(state);
         ableGroup = new RadioGroup(this);
         ableGroup.setOrientation(RadioGroup.VERTICAL);
-        int mode = installed ? preferences.getInt("able_mode", 0) : 0;
-        ableGroup.addView(radioOption("إيقاف AbleSign", 300, mode == 0));
-        ableGroup.addView(radioOption("فتحه بعد انتهاء الطلب", 301, mode == 1));
-        ableGroup.addView(radioOption("فتحه عند انتظار طلب لمدة 30 ثانية", 302, mode == 2));
-        for (int index = 0; index < ableGroup.getChildCount(); index++) {
-            ableGroup.getChildAt(index).setEnabled(installed || index == 0);
-        }
+        int mode = preferences.getInt("able_mode", 0);
+        if (mode == 1 && !configured && installed) mode = 2;
+        if (mode == 2 && !installed) mode = configured ? 1 : 0;
+        ableGroup.addView(radioOption("إيقاف المحتوى الإعلاني", 300, mode == 0));
+        ableGroup.addView(radioOption("مشغّل AbleSign مدمج داخل شاشة العميل — موصى به", 301, mode == 1));
+        RadioButton compatibility = radioOption("وضع التوافق مع تطبيق AbleSign المثبت", 302, mode == 2);
+        compatibility.setEnabled(installed);
+        ableGroup.addView(compatibility);
         section.addView(ableGroup);
+
+        section.addView(fieldLabel("AbleSign API Key — من Account ← API Keys"));
+        ableApiKey = input(embedded.apiKey());
+        ableApiKey.setHint("ak_••••••••••••");
+        ableApiKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        section.addView(ableApiKey);
+
+        section.addView(fieldLabel("رقم شاشة AbleSign"));
+        ableScreenId = input(embedded.screenId() > 0 ? String.valueOf(embedded.screenId()) : "");
+        ableScreenId.setHint("مثال: 12345");
+        ableScreenId.setInputType(InputType.TYPE_CLASS_NUMBER);
+        section.addView(ableScreenId);
+
+        section.addView(fieldLabel("Workspace ID — اختياري"));
+        ableWorkspaceId = input(embedded.workspaceId());
+        ableWorkspaceId.setHint("اتركه فارغًا للحساب الافتراضي");
+        section.addView(ableWorkspaceId);
     }
 
     private void addAccountSection(LinearLayout root) {
@@ -641,6 +670,36 @@ public final class SettingsActivity extends Activity {
             color.setError("اللون غير صحيح");
             return;
         }
+        int ableMode = ableGroup == null ? 0
+                : ableGroup.getCheckedRadioButtonId() == 301 ? 1
+                : ableGroup.getCheckedRadioButtonId() == 302 ? 2 : 0;
+        String apiKeyValue = ableApiKey == null ? "" : ableApiKey.getText().toString().trim();
+        String screenValue = ableScreenId == null ? "" : ableScreenId.getText().toString().trim();
+        long screen = 0;
+        if (!screenValue.isEmpty()) {
+            try { screen = Long.parseLong(screenValue); }
+            catch (Exception error) {
+                ableScreenId.setError("رقم الشاشة غير صحيح");
+                return;
+            }
+        }
+        if (ableMode == 1 && (apiKeyValue.isEmpty() || screen <= 0)) {
+            if (apiKeyValue.isEmpty()) ableApiKey.setError("أدخل API Key للمشغّل المدمج");
+            if (screen <= 0) ableScreenId.setError("أدخل رقم شاشة AbleSign");
+            return;
+        }
+        try {
+            AbleSignSession embedded = new AbleSignSession(this);
+            if (!apiKeyValue.isEmpty() && screen > 0) {
+                embedded.save(apiKeyValue, screen,
+                        ableWorkspaceId == null ? "" : ableWorkspaceId.getText().toString().trim());
+            } else if (apiKeyValue.isEmpty() && screenValue.isEmpty()) {
+                embedded.clear();
+            }
+        } catch (Exception error) {
+            Toast.makeText(this, "تعذر حفظ إعداد AbleSign بأمان", Toast.LENGTH_LONG).show();
+            return;
+        }
         preferences.edit()
                 .putInt("template", selectedTemplate)
                 .putString("theme", themeGroup != null && themeGroup.getCheckedRadioButtonId() == 101
@@ -652,9 +711,7 @@ public final class SettingsActivity extends Activity {
                 .putString("welcome", welcome.getText().toString().trim())
                 .putString("thanks", thanks.getText().toString().trim())
                 .putString("footer", footer.getText().toString().trim())
-                .putInt("able_mode", ableGroup == null ? 0
-                        : ableGroup.getCheckedRadioButtonId() == 301 ? 1
-                        : ableGroup.getCheckedRadioButtonId() == 302 ? 2 : 0)
+                .putInt("able_mode", ableMode)
                 .remove("able_idle")
                 .apply();
         setResult(RESULT_OK);

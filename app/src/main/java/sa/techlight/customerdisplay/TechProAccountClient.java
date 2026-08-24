@@ -226,6 +226,7 @@ public final class TechProAccountClient {
                 "itemNameEn", "displayNameEn", "nameEn", "englishName", "ItemNameEn");
         String barcode = firstText(object, "unitBarcode", "barcode", "itemBarcode", "Barcode");
         String itemCode = firstText(object, "itemCode", "code", "itemNo", "ItemCode");
+        String imagePath = imageText(object);
         double price = firstDouble(object,
                 "salePrice", "unitPrice", "price", "unitPriceInclVat", "SalePrice");
 
@@ -252,6 +253,7 @@ public final class TechProAccountClient {
                     ? inherited.nameEn : coalesce(nameEn, inherited == null ? null : inherited.nameEn);
             current.barcode = coalesce(barcode, unitLike ? null : inherited == null ? null : inherited.barcode);
             current.itemCode = coalesce(itemCode, inherited == null ? null : inherited.itemCode);
+            current.imagePath = coalesce(imagePath, inherited == null ? null : inherited.imagePath);
             current.price = price > 0 ? price : inherited == null ? 0 : inherited.price;
             mergeRecord(output, current);
         }
@@ -281,7 +283,24 @@ public final class TechProAccountClient {
         if (ProductCatalog.clean(existing.nameEn).isEmpty()) existing.nameEn = incoming.nameEn;
         if (ProductCatalog.clean(existing.barcode).isEmpty()) existing.barcode = incoming.barcode;
         if (ProductCatalog.clean(existing.itemCode).isEmpty()) existing.itemCode = incoming.itemCode;
+        if (ProductCatalog.clean(existing.imagePath).isEmpty()) existing.imagePath = incoming.imagePath;
         if (existing.price <= 0 && incoming.price > 0) existing.price = incoming.price;
+    }
+
+    private static String imageText(JSONObject object) {
+        String direct = firstText(object,
+                "imagePath", "imageUrl", "itemImage", "itemImagePath", "productImage",
+                "photoPath", "photoUrl", "picturePath", "thumbnailURL", "ImagePath");
+        if (direct != null) return direct;
+        Object nested = valueForKey(object, "image");
+        if (nested == null) nested = valueForKey(object, "photo");
+        if (nested == null) nested = valueForKey(object, "picture");
+        if (nested instanceof String) return String.valueOf(nested);
+        if (nested instanceof JSONObject) {
+            return firstText((JSONObject) nested,
+                    "url", "path", "src", "imagePath", "imageUrl", "accessUrl");
+        }
+        return null;
     }
 
     private static String pageSignature(List<ProductCatalog.Product> products) {

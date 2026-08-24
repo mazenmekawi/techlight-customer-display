@@ -9,6 +9,7 @@ public final class OrderState {
         public long unitId;
         public String barcode="";
         public String itemCode="";
+        public String imagePath="";
         public String name=""; public double qty=1; public double unitPrice=0;
         public double lineTotal=Double.NaN;
         public double total(){ return Double.isNaN(lineTotal) ? qty * unitPrice : lineTotal; }
