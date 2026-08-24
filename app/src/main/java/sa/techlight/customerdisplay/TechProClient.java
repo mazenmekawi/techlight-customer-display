@@ -3,22 +3,28 @@ package sa.techlight.customerdisplay;
 import android.os.Handler;
 import android.os.Looper;
 
+import com.neovisionaries.ws.client.WebSocket;
+import com.neovisionaries.ws.client.WebSocketAdapter;
+import com.neovisionaries.ws.client.WebSocketException;
+import com.neovisionaries.ws.client.WebSocketExtension;
+import com.neovisionaries.ws.client.WebSocketFactory;
+import com.neovisionaries.ws.client.WebSocketFrame;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
-
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okio.ByteString;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class TechProClient {
+    private static final String DART_COMPRESSION_OFFER =
+            "permessage-deflate; client_max_window_bits";
     public interface Listener {
         void onConnected();
         void onDisconnected(String reason);
@@ -27,23 +33,20 @@ public final class TechProClient {
         void onDiagnostic(String stage, String detail);
     }
 
-    private static final long RECONNECT_DELAY_MS = 2000;
+    private static final long RECONNECT_DELAY_MS = 1800;
+    private static final long MAX_RECONNECT_DELAY_MS = 15000;
 
     private final String host;
     private final int port;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final OkHttpClient http = new OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(10, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build();
+    private final ExecutorService connector = Executors.newSingleThreadExecutor();
 
     private volatile boolean running;
     private volatile int generation;
     private volatile int disconnectedGeneration = -1;
     private volatile WebSocket socket;
+    private volatile int reconnectAttempt;
     private OrderState lastOrder;
 
     public TechProClient(String host, int port, Listener listener) {
@@ -65,8 +68,8 @@ public final class TechProClient {
         main.removeCallbacksAndMessages(null);
         WebSocket current = socket;
         socket = null;
-        if (current != null) current.cancel();
-        http.connectionPool().evictAll();
+        if (current != null) current.disconnect();
+        connector.shutdownNow();
     }
 
     private void connect() {
@@ -75,53 +78,80 @@ public final class TechProClient {
         disconnectedGeneration = -1;
         String url = "ws://" + host + ":" + port;
         diagnostic(currentGeneration, "CONNECTING", url);
-        Request request = new Request.Builder().url(url).build();
-        socket = http.newWebSocket(request, new WebSocketListener() {
-            @Override public void onOpen(WebSocket webSocket, Response response) {
-                if (!isCurrent(currentGeneration)) {
-                    webSocket.cancel();
-                    return;
-                }
-                socket = webSocket;
-                main.post(() -> {
-                    if (isCurrent(currentGeneration)) {
-                        listener.onDiagnostic("WEBSOCKET_OPEN", url);
-                        listener.onConnected();
-                    }
-                });
-            }
+        connector.execute(() -> {
+            try {
+                WebSocketExtension dartCompression = WebSocketExtension.parse(
+                        webSocketCompressionOffer()
+                );
+                WebSocket candidate = new WebSocketFactory()
+                        .setConnectionTimeout(5000)
+                        .createSocket(url, 5000)
+                        .addExtension(dartCompression)
+                        .setMissingCloseFrameAllowed(true)
+                        .setPingInterval(10000)
+                        .addListener(new WebSocketAdapter() {
+                            @Override public void onConnected(
+                                    WebSocket webSocket,
+                                    Map<String, List<String>> headers
+                            ) {
+                                if (!isCurrent(currentGeneration)) {
+                                    webSocket.disconnect();
+                                    return;
+                                }
+                                reconnectAttempt = 0;
+                                main.post(() -> {
+                                    if (!isCurrent(currentGeneration)) return;
+                                    listener.onDiagnostic("WEBSOCKET_OPEN", "dart-compatible compression");
+                                    listener.onConnected();
+                                });
+                            }
 
-            @Override public void onMessage(WebSocket webSocket, String text) {
+                            @Override public void onTextMessage(WebSocket webSocket, String text) {
+                                if (isCurrent(currentGeneration)) {
+                                    handleMessage(webSocket, text, currentGeneration);
+                                }
+                            }
+
+                            @Override public void onBinaryMessage(WebSocket webSocket, byte[] bytes) {
+                                if (isCurrent(currentGeneration)) {
+                                    handleMessage(webSocket, new String(bytes, StandardCharsets.UTF_8), currentGeneration);
+                                }
+                            }
+
+                            @Override public void onDisconnected(
+                                    WebSocket webSocket,
+                                    WebSocketFrame serverCloseFrame,
+                                    WebSocketFrame clientCloseFrame,
+                                    boolean closedByServer
+                            ) {
+                                if (!isCurrent(currentGeneration)) return;
+                                scheduleReconnect(currentGeneration,
+                                        closedByServer ? "TechPro closed WebSocket" : "WebSocket disconnected");
+                            }
+
+                            @Override public void onError(WebSocket webSocket, WebSocketException error) {
+                                if (!isCurrent(currentGeneration)) return;
+                                diagnostic(currentGeneration, "WEBSOCKET_WARNING",
+                                        error.getError() + ": " + String.valueOf(error.getMessage()));
+                            }
+                        });
                 if (!isCurrent(currentGeneration)) return;
-                handleMessage(webSocket, text, currentGeneration);
-            }
-
-            @Override public void onMessage(WebSocket webSocket, ByteString bytes) {
+                socket = candidate;
+                candidate.connect();
+            } catch (Exception error) {
                 if (!isCurrent(currentGeneration)) return;
-                handleMessage(webSocket, bytes.utf8(), currentGeneration);
-            }
-
-            @Override public void onClosing(WebSocket webSocket, int code, String reason) {
-                webSocket.close(code, reason);
-            }
-
-            @Override public void onClosed(WebSocket webSocket, int code, String reason) {
-                if (!isCurrent(currentGeneration)) return;
-                scheduleReconnect(currentGeneration, "WebSocket closed " + code + ": " + reason);
-            }
-
-            @Override public void onFailure(WebSocket webSocket, Throwable error, Response response) {
-                if (!isCurrent(currentGeneration)) return;
-                int responseCode = response == null ? 0 : response.code();
-                String reason = error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage());
-                if (responseCode > 0) reason = "HTTP " + responseCode + " — " + reason;
-                scheduleReconnect(currentGeneration, reason);
+                scheduleReconnect(currentGeneration,
+                        error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
             }
         });
     }
 
     private boolean isCurrent(int value) {
         return running && value == generation;
+    }
+
+    static String webSocketCompressionOffer() {
+        return DART_COMPRESSION_OFFER;
     }
 
     private void scheduleReconnect(int currentGeneration, String reason) {
@@ -133,21 +163,23 @@ public final class TechProClient {
                 if (isCurrent(currentGeneration)) listener.onDisconnected(reason);
             });
         }
+        long multiplier = 1L << Math.min(reconnectAttempt++, 3);
+        long delay = Math.min(MAX_RECONNECT_DELAY_MS, RECONNECT_DELAY_MS * multiplier);
         main.postDelayed(() -> {
             if (isCurrent(currentGeneration)) connect();
-        }, RECONNECT_DELAY_MS);
+        }, delay);
     }
 
     private void handleMessage(WebSocket webSocket, String raw, int currentGeneration) {
         if (raw == null) return;
         String trimmed = raw.trim();
         if (trimmed.equalsIgnoreCase("heartbeat") || trimmed.equalsIgnoreCase("ping")) {
-            webSocket.send(trimmed.startsWith("{") ? "{\"type\":\"pong\"}" : "pong");
+            webSocket.sendText(trimmed.startsWith("{") ? "{\"type\":\"pong\"}" : "pong");
             return;
         }
         JSONObject envelope = objectFrom(trimmed);
         if (envelope != null && "heartbeat".equalsIgnoreCase(firstText(envelope, "type", "messageType", "event"))) {
-            webSocket.send("{\"type\":\"pong\"}");
+            webSocket.sendText("{\"type\":\"pong\"}");
         }
         OrderState order = mergeOrderPatch(parseOrderMessage(trimmed));
         String type = envelope == null ? "RAW" : firstText(envelope, "type", "messageType", "event", "action");

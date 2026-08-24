@@ -11,6 +11,13 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public final class TechProProtocolTest {
+    @Test public void websocketNegotiationMatchesOriginalFlutterClient() {
+        assertEquals(
+                "permessage-deflate; client_max_window_bits",
+                TechProClient.webSocketCompressionOffer()
+        );
+    }
+
     @Test public void loginPayloadMatchesOriginalTechProModel() throws Exception {
         JSONObject payload = TechProAccountClient.buildLoginPayload(" 0042 ", " cashier ", " secret ");
 
