@@ -1,5 +1,6 @@
 package sa.techlight.customerdisplay;
 
+import org.json.JSONObject;
 import org.junit.Test;
 
 import java.util.List;
@@ -10,6 +11,15 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public final class TechProProtocolTest {
+    @Test public void loginPayloadMatchesOriginalTechProModel() throws Exception {
+        JSONObject payload = TechProAccountClient.buildLoginPayload(" 0042 ", " cashier ", " secret ");
+
+        assertEquals("0042", payload.getString("posCode"));
+        assertEquals("cashier", payload.getString("username"));
+        assertEquals(" secret ", payload.getString("password"));
+        assertEquals(3, payload.length());
+    }
+
     @Test public void parsesExactFullSnapshotEnvelope() {
         String message = "{"
                 + "\"type\":\"fullSnapshot\","
