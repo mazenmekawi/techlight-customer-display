@@ -101,6 +101,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private boolean dark;
     private boolean orderVisible;
     private boolean ableExternalVisible;
+    private long completionMomentUntil;
     private int pageColor;
     private int surfaceColor;
     private int softColor;
@@ -1246,9 +1247,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 handler.removeCallbacks(idleTask);
                 boolean empty = order.items == null || order.items.isEmpty();
                 if (!empty) {
+                    completionMomentUntil = 0;
                     orderVisible = true;
                     hideAdvertisingForOrder();
                 }
+                boolean holdCompletion = empty
+                        && !order.completed
+                        && completionMomentUntil > System.currentTimeMillis();
                 int rows = empty ? 0 : order.items.size();
                 double units = 0;
                 if (!empty) {
@@ -1264,21 +1269,30 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 }
                 if (empty) {
                     orderVisible = false;
-                    if (order.total > 0.0001) {
-                        showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
+                    if (holdCompletion) {
+                        long remaining = Math.max(250L, completionMomentUntil - System.currentTimeMillis());
+                        if (ui.getInt("able_mode", 0) > 0) scheduleIdle(remaining);
                     } else {
-                        showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                        completionMomentUntil = 0;
+                        if (order.total > 0.0001) {
+                            showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
+                        } else {
+                            showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                        }
+                        if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
                     }
                     setConnectionState("متصل", true);
-                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
                 } else {
                     renderOrderRows(order);
                 }
-                updateSummaryValues(order);
-                animateTotal(order.total);
+                if (!holdCompletion) {
+                    updateSummaryValues(order);
+                    animateTotal(order.total);
+                }
                 if (order.completed) {
                     setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
                     orderVisible = false;
+                    completionMomentUntil = System.currentTimeMillis() + ableDelayMs();
                     showCompletionMoment();
                     if (ui.getInt("able_mode", 0) > 0) scheduleIdle(ableDelayMs());
                 } else if (!empty) {
