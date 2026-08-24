@@ -112,6 +112,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private boolean scannerWaitingForPermission;
     private boolean scannerActive;
     private boolean scannerTorchOn;
+    private boolean scannerOrientationChanged;
     private FrameLayout scannerOverlay;
     private DecoratedBarcodeView barcodeScanner;
     private long completionMomentUntil;
@@ -1212,6 +1213,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void closeScannerOverlay() {
+        boolean rebuildForRotation = scannerOrientationChanged;
+        scannerOrientationChanged = false;
         scannerActive = false;
         scannerTorchOn = false;
         DecoratedBarcodeView scanner = barcodeScanner;
@@ -1225,6 +1228,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         if (overlay != null && overlay.getParent() instanceof FrameLayout) {
             try { ((FrameLayout) overlay.getParent()).removeView(overlay); }
             catch (Throwable ignored) { }
+        }
+        if (rebuildForRotation && shell != null && !isFinishing()) {
+            handler.post(() -> {
+                if (scannerActive || isFinishing()) return;
+                buildUi();
+                if (client == null) restoreOrPair();
+                else if (latestOrder != null) onOrder(latestOrder);
+            });
         }
     }
 
@@ -1995,6 +2006,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         super.onConfigurationChanged(configuration);
         getWindow().getDecorView().setSystemUiVisibility(5894);
         if (scannerActive) {
+            scannerOrientationChanged = true;
             writeDiagnostic("ORIENTATION_CHANGED_DURING_SCAN", "Camera kept alive without Activity restart");
             return;
         }
