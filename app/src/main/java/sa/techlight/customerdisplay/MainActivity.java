@@ -48,9 +48,13 @@ import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.Result;
+import com.google.zxing.ResultPoint;
 import com.google.zxing.common.HybridBinarizer;
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
+import com.journeyapps.barcodescanner.BarcodeCallback;
+import com.journeyapps.barcodescanner.BarcodeResult;
+import com.journeyapps.barcodescanner.CameraPreview;
+import com.journeyapps.barcodescanner.DecoratedBarcodeView;
+import com.journeyapps.barcodescanner.DefaultDecoderFactory;
 
 import org.json.JSONArray;
 
@@ -104,6 +108,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private boolean orderVisible;
     private boolean ableExternalVisible;
     private boolean scannerWaitingForPermission;
+    private boolean scannerActive;
+    private boolean scannerTorchOn;
+    private FrameLayout scannerOverlay;
+    private DecoratedBarcodeView barcodeScanner;
     private long completionMomentUntil;
     private int pageColor;
     private int surfaceColor;
@@ -272,6 +280,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void buildUi() {
+        closeScannerOverlay();
         handler.removeCallbacks(hideSettingsTask);
         handler.removeCallbacks(idleTask);
         stopDecorativeAnimations();
@@ -967,26 +976,162 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void launchScanner() {
         scannerWaitingForPermission = false;
+        if (scannerActive || shell == null || isFinishing()) return;
         try {
-            IntentIntegrator integrator = new IntentIntegrator(this);
-            integrator.setCaptureActivity(QrCaptureActivity.class);
-            integrator.setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES);
-            integrator.setPrompt("وجّه الكاميرا إلى رمز الاقتران في Tech Pro");
-            integrator.setBeepEnabled(false);
-            integrator.setBarcodeImageEnabled(false);
-            integrator.setOrientationLocked(false);
-            integrator.setTimeout(300000);
-            integrator.initiateScan();
-            writeDiagnostic("CAMERA_LAUNCHED", "QrCaptureActivity");
-        } catch (Exception error) {
-            writeDiagnostic("CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
-            new AlertDialog.Builder(this)
-                    .setTitle("تعذّر فتح الماسح")
-                    .setMessage("تعذّر تشغيل الكاميرا المباشرة. اختر صورة الرمز المحفوظة أو أدخل IP والمنفذ.")
-                    .setPositiveButton("اختيار صورة", (dialog, which) -> launchQrImagePicker())
-                    .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
-                    .show();
+            FrameLayout overlay = new FrameLayout(this);
+            overlay.setBackgroundColor(Color.BLACK);
+            overlay.setClickable(true);
+            overlay.setFocusable(true);
+            overlay.setElevation(dp(50));
+
+            DecoratedBarcodeView scanner = new DecoratedBarcodeView(this);
+            List<BarcodeFormat> formats = new ArrayList<>();
+            formats.add(BarcodeFormat.QR_CODE);
+            formats.add(BarcodeFormat.DATA_MATRIX);
+            formats.add(BarcodeFormat.AZTEC);
+            formats.add(BarcodeFormat.CODE_128);
+            scanner.getBarcodeView().setDecoderFactory(new DefaultDecoderFactory(formats));
+            scanner.setStatusText("وجّه الكاميرا إلى رمز الاقتران");
+            overlay.addView(scanner, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+
+            LinearLayout controls = new LinearLayout(this);
+            controls.setOrientation(LinearLayout.HORIZONTAL);
+            controls.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+            controls.setGravity(Gravity.CENTER_VERTICAL);
+            controls.setPadding(dp(12), dp(12), dp(12), dp(12));
+            controls.setBackgroundColor(0x99000000);
+
+            TextView close = scannerButton("إغلاق");
+            close.setOnClickListener(view -> closeScannerOverlay());
+            controls.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1));
+
+            TextView torch = scannerButton("الإضاءة");
+            torch.setOnClickListener(view -> {
+                if (barcodeScanner == null) return;
+                try {
+                    scannerTorchOn = !scannerTorchOn;
+                    if (scannerTorchOn) barcodeScanner.setTorchOn();
+                    else barcodeScanner.setTorchOff();
+                    torch.setText(scannerTorchOn ? "إطفاء الإضاءة" : "الإضاءة");
+                } catch (Throwable error) {
+                    scannerTorchOn = false;
+                    showToast("الإضاءة غير متاحة في كاميرا هذا الجهاز");
+                }
+            });
+            LinearLayout.LayoutParams torchParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+            torchParams.setMargins(dp(8), 0, dp(8), 0);
+            controls.addView(torch, torchParams);
+
+            TextView gallery = scannerButton("اختيار صورة");
+            gallery.setOnClickListener(view -> {
+                closeScannerOverlay();
+                launchQrImagePicker();
+            });
+            controls.addView(gallery, new LinearLayout.LayoutParams(0, dp(48), 1));
+
+            overlay.addView(controls, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+            ));
+
+            scannerOverlay = overlay;
+            barcodeScanner = scanner;
+            scannerActive = true;
+            scannerTorchOn = false;
+            shell.addView(overlay, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+
+            scanner.getBarcodeView().addStateListener(new CameraPreview.StateListener() {
+                @Override public void previewSized() { }
+                @Override public void previewStarted() {
+                    writeDiagnostic("CAMERA_PREVIEW_READY", "Embedded scanner preview started");
+                }
+                @Override public void previewStopped() { }
+                @Override public void cameraClosed() { }
+                @Override public void cameraError(Exception error) {
+                    runOnUiThread(() -> {
+                        if (barcodeScanner == scanner) handleScannerFailure(error);
+                    });
+                }
+            });
+            scanner.decodeSingle(new BarcodeCallback() {
+                @Override public void barcodeResult(BarcodeResult result) {
+                    if (result == null || result.getText() == null) return;
+                    runOnUiThread(() -> {
+                        if (barcodeScanner != scanner) return;
+                        String value = result.getText();
+                        writeDiagnostic("LIVE_CODE_DECODED", "characters=" + value.length());
+                        closeScannerOverlay();
+                        pairText(value);
+                    });
+                }
+
+                @Override public void possibleResultPoints(List<ResultPoint> resultPoints) { }
+            });
+            overlay.setAlpha(0f);
+            overlay.animate().alpha(1f).setDuration(180).start();
+            handler.postDelayed(() -> {
+                if (scannerActive && barcodeScanner == scanner) {
+                    try {
+                        scanner.resume();
+                    } catch (Throwable error) {
+                        handleScannerFailure(error);
+                    }
+                }
+            }, 120);
+            writeDiagnostic("CAMERA_LAUNCHED", "EmbeddedBarcodeView");
+        } catch (Throwable error) {
+            handleScannerFailure(error);
         }
+    }
+
+    private TextView scannerButton(String label) {
+        TextView button = text(label, compact ? 12 : 14, Color.WHITE);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(10), 0, dp(10), 0);
+        button.setBackground(pressable(0xCC24152D, 0x55FFFFFF, 14, 0x33FFFFFF));
+        button.setClickable(true);
+        button.setFocusable(true);
+        return button;
+    }
+
+    private void closeScannerOverlay() {
+        scannerActive = false;
+        scannerTorchOn = false;
+        DecoratedBarcodeView scanner = barcodeScanner;
+        FrameLayout overlay = scannerOverlay;
+        barcodeScanner = null;
+        scannerOverlay = null;
+        if (scanner != null) {
+            try { scanner.setTorchOff(); } catch (Throwable ignored) { }
+            try { scanner.pause(); } catch (Throwable ignored) { }
+        }
+        if (overlay != null && overlay.getParent() instanceof FrameLayout) {
+            try { ((FrameLayout) overlay.getParent()).removeView(overlay); }
+            catch (Throwable ignored) { }
+        }
+    }
+
+    private void handleScannerFailure(Throwable error) {
+        String detail = error == null
+                ? "unknown camera error"
+                : error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage());
+        writeDiagnostic("CAMERA_FAILED", detail);
+        closeScannerOverlay();
+        if (isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("تعذّر تشغيل كاميرا هذا الجهاز")
+                .setMessage("لن يغلق التطبيق. يمكنك اختيار صورة رمز الاقتران أو الربط بالعنوان يدويًا.")
+                .setPositiveButton("اختيار صورة", (dialog, which) -> launchQrImagePicker())
+                .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
+                .show();
     }
 
     private void launchQrImagePicker() {
@@ -1092,16 +1237,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 decodeQrImage(data.getData());
             } else {
                 writeDiagnostic("QR_IMAGE_PICKER_CANCELLED", "result=" + result);
-            }
-            return;
-        }
-        IntentResult qr = IntentIntegrator.parseActivityResult(request, result, data);
-        if (qr != null) {
-            if (qr.getContents() != null) {
-                writeDiagnostic("LIVE_QR_DECODED", "characters=" + qr.getContents().length());
-                pairText(qr.getContents());
-            } else {
-                writeDiagnostic("LIVE_SCANNER_CANCELLED", "no result");
             }
             return;
         }
@@ -1728,7 +1863,17 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 && Build.VERSION.SDK_INT >= 23
                 && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             handler.postDelayed(this::launchScanner, 180);
+        } else if (scannerActive && barcodeScanner != null) {
+            try { barcodeScanner.resume(); }
+            catch (Throwable error) { handleScannerFailure(error); }
         }
+    }
+
+    @Override protected void onPause() {
+        if (scannerActive && barcodeScanner != null) {
+            try { barcodeScanner.pause(); } catch (Throwable ignored) { }
+        }
+        super.onPause();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -1745,6 +1890,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     @Override public void onBackPressed() {
+        if (scannerActive) {
+            closeScannerOverlay();
+            return;
+        }
         if (embeddedAble != null && embeddedAble.isVisible()) {
             embeddedAble.hide();
             if (!orderVisible && ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
@@ -1756,6 +1905,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     @Override protected void onDestroy() {
+        closeScannerOverlay();
         if (client != null) client.stop();
         if (catalog != null) catalog.close();
         if (imageLoader != null) imageLoader.shutdown();
