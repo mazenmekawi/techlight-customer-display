@@ -13,6 +13,7 @@
 
     <application
         android:allowBackup="false"
+        android:hardwareAccelerated="true"
         android:label="شاشة عميل ضوء التقنية"
         android:icon="@drawable/techlight_mark"
         android:roundIcon="@drawable/techlight_mark"
@@ -27,14 +28,6 @@
             android:name=".LoginActivity"
             android:exported="false"
             android:screenOrientation="fullSensor" />
-        <activity
-            android:name=".QrCaptureActivity"
-            android:exported="false"
-            android:hardwareAccelerated="true"
-            android:stateNotNeeded="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:screenOrientation="fullSensor"
-            android:theme="@style/zxing_CaptureTheme" />
         <activity
             android:name=".MainActivity"
             android:alwaysRetainTaskState="true"

@@ -44,6 +44,7 @@ public final class SettingsActivity extends Activity {
     private EditText completedMessage;
     private EditText color;
     private EditText panelColor;
+    private EditText panelEndColor;
     private ImageView logo;
     private RadioGroup themeGroup;
     private RadioGroup orientationGroup;
@@ -417,7 +418,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "هوية المتجر والنصوص",
-                "شعار العميل يظهر في رأس الطلب، وشعار ضوء التقنية يظهر منفصلًا داخل لوحة الملخص."
+                "شعار العميل يظهر كبيرًا في المنتصف، وشعار ضوء التقنية يظهر صغيرًا في أسفل لوحة الإجمالي."
         );
 
         section.addView(fieldLabel("لون الهوية — اللون الأساسي في الشريط والحركات"));
@@ -451,6 +452,22 @@ public final class SettingsActivity extends Activity {
             panelPresets.addView(swatch, params);
         }
         section.addView(panelPresets);
+
+        section.addView(fieldLabel("لون نهاية التدرج"));
+        panelEndColor = input(preferences.getString("panel_end_color", "#260441"));
+        section.addView(panelEndColor);
+        LinearLayout endPresets = new LinearLayout(this);
+        String[] endColors = {"#260441", "#321A78", "#111827", "#003C36", "#561124", "#0B2E67"};
+        for (String value : endColors) {
+            TextView swatch = text("●", 28, Color.parseColor(value));
+            swatch.setGravity(Gravity.CENTER);
+            swatch.setBackground(round(0xFFF6F4F7, 12));
+            swatch.setOnClickListener(view -> panelEndColor.setText(value));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1);
+            params.setMargins(dp(3), dp(5), dp(3), dp(5));
+            endPresets.addView(swatch, params);
+        }
+        section.addView(endPresets);
 
         section.addView(fieldLabel("عنوان الشاشة العلوي"));
         welcome = input(preferences.getString("welcome", "أهلًا وسهلًا بك"));
@@ -791,6 +808,7 @@ public final class SettingsActivity extends Activity {
     private void saveAndClose() {
         String colorValue = color.getText().toString().trim();
         String panelColorValue = panelColor == null ? colorValue : panelColor.getText().toString().trim();
+        String panelEndColorValue = panelEndColor == null ? "#260441" : panelEndColor.getText().toString().trim();
         try {
             Color.parseColor(colorValue);
         } catch (Exception error) {
@@ -801,6 +819,12 @@ public final class SettingsActivity extends Activity {
             Color.parseColor(panelColorValue);
         } catch (Exception error) {
             panelColor.setError("لون لوحة الإجمالي غير صحيح");
+            return;
+        }
+        try {
+            Color.parseColor(panelEndColorValue);
+        } catch (Exception error) {
+            panelEndColor.setError("لون نهاية التدرج غير صحيح");
             return;
         }
         int ableMode = ableGroup == null ? 0
@@ -815,6 +839,7 @@ public final class SettingsActivity extends Activity {
                         : orientationGroup.getCheckedRadioButtonId() == 202 ? 2 : 0)
                 .putString("color", colorValue)
                 .putString("panel_color", panelColorValue)
+                .putString("panel_end_color", panelEndColorValue)
                 .putString("welcome", welcome.getText().toString().trim())
                 .putString("idle_message", idleMessage == null ? "" : idleMessage.getText().toString().trim())
                 .putString("completed_message", completedMessage == null ? "" : completedMessage.getText().toString().trim())
