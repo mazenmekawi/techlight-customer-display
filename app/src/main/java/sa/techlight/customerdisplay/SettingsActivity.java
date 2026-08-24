@@ -171,8 +171,9 @@ public final class SettingsActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(4), dp(2), dp(4), dp(12));
         ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_techlight);
-        header.addView(icon, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        icon.setImageResource(R.drawable.techlight_brand_transparent);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        header.addView(icon, new LinearLayout.LayoutParams(dp(172), dp(52)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.setPadding(dp(10), 0, 0, 0);
@@ -263,7 +264,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout choices = new LinearLayout(this);
         choices.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         section.addView(choices);
-        String[] titles = {"Foodics حديث", "Google نظيف", "الإجمالي أولًا"};
+        String[] titles = {"طلب وملخص", "بطاقات نظيفة", "الإجمالي أولًا"};
         String[] subtitles = {"طلب واسع وملخص جانبي", "بطاقات ومسافات مريحة", "يبرز المبلغ قبل التفاصيل"};
         for (int i = 0; i < 3; i++) {
             LinearLayout card = templateCard(i, titles[i], subtitles[i]);
@@ -435,7 +436,7 @@ public final class SettingsActivity extends Activity {
         }
         section.addView(presets);
 
-        section.addView(fieldLabel("لون لوحة الإجمالي وشعار ضوء التقنية"));
+        section.addView(fieldLabel("لون لوحة الإجمالي"));
         panelColor = input(preferences.getString("panel_color", "#4D0E81"));
         section.addView(panelColor);
         LinearLayout panelPresets = new LinearLayout(this);
@@ -454,10 +455,10 @@ public final class SettingsActivity extends Activity {
         section.addView(fieldLabel("عنوان الشاشة العلوي"));
         welcome = input(preferences.getString("welcome", "أهلًا وسهلًا بك"));
         section.addView(welcome);
-        section.addView(fieldLabel("العبارة فوق الوجه المبتسم قبل الطلب"));
+        section.addView(fieldLabel("رسالة العميل قبل بدء الطلب"));
         idleMessage = input(preferences.getString("idle_message", "أهلًا وسهلًا بك — طلبك سيظهر هنا"));
         section.addView(idleMessage);
-        section.addView(fieldLabel("العبارة فوق شخصية الطاهي بعد تنفيذ الطلب"));
+        section.addView(fieldLabel("رسالة العميل بعد تنفيذ الطلب"));
         completedMessage = input(preferences.getString("completed_message", "طلبك يُجهّز بكل حب"));
         section.addView(completedMessage);
         section.addView(fieldLabel("نص حالة الشكر بعد الدفع"));
@@ -500,7 +501,7 @@ public final class SettingsActivity extends Activity {
     private void addAbleSignSection(LinearLayout root) {
         LinearLayout section = section(
                 root,
-                "AbleSign والمحتوى الإعلاني",
+                "الشاشة الإعلانية والمحتوى",
                 "يختفي فور وصول أول صنف، ويعمل بعد تنفيذ الطلب وفق المؤقت الذي تختاره من 3 إلى 60 ثانية."
         );
         AbleSignController controller = new AbleSignController(this);
@@ -518,13 +519,13 @@ public final class SettingsActivity extends Activity {
         int mode = preferences.getInt("able_mode", 0);
         if (mode == 2 && !installed) mode = 1;
         ableGroup.addView(radioOption("إيقاف المحتوى الإعلاني", 300, mode == 0));
-        ableGroup.addView(radioOption("AbleSign مدمج — اقتران بكود 6 أرقام (موصى به)", 301, mode == 1));
-        RadioButton compatibility = radioOption("وضع التوافق مع تطبيق AbleSign المثبت", 302, mode == 2);
+        ableGroup.addView(radioOption("إضافة شاشة", 301, mode == 1));
+        RadioButton compatibility = radioOption("استخدام تطبيق شاشة مثبت على الجهاز", 302, mode == 2);
         compatibility.setEnabled(installed);
         ableGroup.addView(compatibility);
         section.addView(ableGroup);
 
-        section.addView(fieldLabel("مدة ظهور رسالة الطاهي قبل تشغيل AbleSign"));
+        section.addView(fieldLabel("مدة ظهور رسالة إنهاء الطلب قبل الشاشة الإعلانية"));
         ableDelayValue = text("", 15, ACCENT);
         ableDelayValue.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         ableDelayValue.setGravity(Gravity.CENTER);
@@ -550,7 +551,7 @@ public final class SettingsActivity extends Activity {
         ));
 
         TextView instructions = text(
-                "طريقة الربط: اختر الوضع المدمج واحفظ. بعد 10 ثوانٍ سيظهر كود من 6 أرقام؛ أدخله مرة واحدة في حساب AbleSign من Add Screen. سيبقى الاقتران محفوظًا بعد إغلاق التطبيق.",
+                "طريقة الربط: اختر إضافة شاشة ثم احفظ. سيظهر كود من 6 أرقام؛ أضف الشاشة من حساب المحتوى مرة واحدة، وسيبقى الاقتران محفوظًا بعد إغلاق التطبيق.",
                 12,
                 0xFF625A67
         );
@@ -558,14 +559,14 @@ public final class SettingsActivity extends Activity {
         instructions.setBackground(round(0xFFF7F4F8, 12));
         section.addView(instructions);
 
-        TextView preview = button("فتح AbleSign الآن للمعاينة", false);
+        TextView preview = button("فتح شاشة العرض الآن للمعاينة", false);
         preview.setOnClickListener(view -> {
             preferences.edit()
                     .putBoolean("able_preview_requested", true)
                     .putInt("able_mode", 1)
                     .apply();
             if (ableGroup != null) ableGroup.check(301);
-            Toast.makeText(this, "احفظ الإعدادات لفتح AbleSign الآن", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "احفظ الإعدادات لفتح شاشة العرض الآن", Toast.LENGTH_SHORT).show();
         });
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
@@ -573,11 +574,11 @@ public final class SettingsActivity extends Activity {
         previewParams.setMargins(0, dp(10), 0, 0);
         section.addView(preview, previewParams);
 
-        TextView reset = button("حذف ربط AbleSign وإظهار كود جديد", false);
+        TextView reset = button("حذف ربط الشاشة وإظهار كود جديد", false);
         reset.setTextColor(0xFFB42318);
         reset.setOnClickListener(view -> new AlertDialog.Builder(this)
                 .setTitle("إنشاء كود اقتران جديد؟")
-                .setMessage("سيُلغى اقتران AbleSign المحفوظ في هذه الشاشة، ثم يظهر كود جديد عند تشغيل الإعلانات.")
+                .setMessage("سيُلغى الاقتران المحفوظ في هذه الشاشة، ثم يظهر كود جديد عند تشغيل المحتوى.")
                 .setPositiveButton("إنشاء كود جديد", (dialog, which) -> {
                     preferences.edit()
                             .putBoolean("able_reset_requested", true)
@@ -585,7 +586,7 @@ public final class SettingsActivity extends Activity {
                             .putInt("able_mode", 1)
                             .apply();
                     if (ableGroup != null) ableGroup.check(301);
-                    Toast.makeText(this, "سيظهر كود AbleSign الجديد بعد الحفظ", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "سيظهر كود الشاشة الجديد بعد الحفظ", Toast.LENGTH_LONG).show();
                 })
                 .setNegativeButton("إلغاء", null)
                 .show());
@@ -701,7 +702,7 @@ public final class SettingsActivity extends Activity {
         copy.setOnClickListener(view -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("TechLight diagnostics", report));
+                clipboard.setPrimaryClip(ClipData.newPlainText("Customer display diagnostics", report));
                 Toast.makeText(this, "تم نسخ تقرير التشخيص", Toast.LENGTH_SHORT).show();
             }
         });

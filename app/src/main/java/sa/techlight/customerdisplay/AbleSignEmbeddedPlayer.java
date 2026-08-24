@@ -73,7 +73,7 @@ public final class AbleSignEmbeddedPlayer {
         TextView dot = label(activity, "●", 11, 0xFF9B59C2);
         dot.setPadding(0, 0, dp(activity, 6), 0);
         badge.addView(dot);
-        state = label(activity, "AbleSign — جاري تشغيل المشغّل", 12, Color.WHITE);
+        state = label(activity, "شاشة العرض — جاري التشغيل", 12, Color.WHITE);
         state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         badge.addView(state);
         FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
@@ -101,7 +101,7 @@ public final class AbleSignEmbeddedPlayer {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setAllowContentAccess(true);
         settings.setAllowFileAccess(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " TechLightCustomerDisplay/1.6");
+        settings.setUserAgentString(settings.getUserAgentString() + " CustomerDisplay/1.7");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
             CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -111,15 +111,15 @@ public final class AbleSignEmbeddedPlayer {
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 statusBadge.setAlpha(1f);
-                state.setText("AbleSign — جاري التحميل");
-                report("جاري فتح مشغّل AbleSign الرسمي", false);
+                state.setText("شاشة العرض — جاري التحميل");
+                report("جاري فتح شاشة العرض", false);
             }
 
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = true;
-                state.setText("AbleSign — جاهز");
+                state.setText("شاشة العرض — جاهزة");
                 statusBadge.animate().alpha(0f).setStartDelay(1600).setDuration(450).start();
-                report("AbleSign جاهز — أدخل كود الاقتران ذي 6 أرقام إذا ظهر", false);
+                report("شاشة العرض جاهزة — أدخل كود الاقتران ذي 6 أرقام إذا ظهر", false);
             }
 
             @Override public void onReceivedError(
@@ -129,8 +129,8 @@ public final class AbleSignEmbeddedPlayer {
             ) {
                 if (request != null && request.isForMainFrame()) {
                     statusBadge.setAlpha(1f);
-                    state.setText("AbleSign — تحقق من الإنترنت");
-                    report("تعذر تحميل AbleSign؛ ستحاول الشاشة مجددًا عند العرض", true);
+                    state.setText("شاشة العرض — تحقق من الإنترنت");
+                    report("تعذر تحميل المحتوى؛ ستحاول الشاشة مجددًا عند العرض", true);
                 }
             }
 
@@ -141,8 +141,8 @@ public final class AbleSignEmbeddedPlayer {
             ) {
                 handler.cancel();
                 statusBadge.setAlpha(1f);
-                state.setText("AbleSign — اتصال غير آمن");
-                report("أوقف AbleSign اتصالًا غير آمن لحماية الاقتران", true);
+                state.setText("شاشة العرض — اتصال غير آمن");
+                report("تم إيقاف اتصال غير آمن لحماية الاقتران", true);
             }
         });
     }
@@ -160,7 +160,7 @@ public final class AbleSignEmbeddedPlayer {
         if (!loaded && !resetting) {
             statusBadge.animate().cancel();
             statusBadge.setAlpha(1f);
-            state.setText("AbleSign — جاري تشغيل المشغّل");
+            state.setText("شاشة العرض — جاري التشغيل");
             player.loadUrl(PLAYER_URL);
         }
     }
@@ -182,7 +182,7 @@ public final class AbleSignEmbeddedPlayer {
         resetting = true;
         statusBadge.animate().cancel();
         statusBadge.setAlpha(1f);
-        state.setText("AbleSign — جارٍ إنشاء كود اقتران جديد");
+        state.setText("شاشة العرض — جارٍ إنشاء كود اقتران جديد");
         try {
             WebStorage.getInstance().deleteAllData();
             player.stopLoading();
@@ -196,13 +196,13 @@ public final class AbleSignEmbeddedPlayer {
                     if (destroyed) return;
                 cookies.flush();
                 resetting = false;
-                report("تم مسح اقتران AbleSign؛ سيظهر كود جديد الآن", false);
+                report("تم مسح اقتران الشاشة؛ سيظهر كود جديد الآن", false);
                 if (visible) player.loadUrl(PLAYER_URL);
                 });
             });
         } catch (Throwable error) {
             resetting = false;
-            report("تعذر مسح اقتران AbleSign بأمان", true);
+            report("تعذر مسح اقتران الشاشة بأمان", true);
         }
     }
 

@@ -1,9 +1,10 @@
 package sa.techlight.customerdisplay;
 
 import android.app.Activity;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -13,7 +14,6 @@ import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 public final class SplashActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -30,58 +30,32 @@ public final class SplashActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setPadding(dp(28), dp(28), dp(28), dp(28));
+        root.setPadding(dp(24), dp(24), dp(24), dp(24));
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         GradientDrawable background = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.rgb(42, 7, 65), Color.rgb(77, 14, 129), Color.rgb(131, 42, 204)}
+                new int[]{0xFFFDFBFF, 0xFFF3ECFA, 0xFFFFFFFF}
         );
         root.setBackground(background);
 
         ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_techlight);
-        int iconSize = dp(compact ? 104 : 132);
-        root.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
-
-        TextView arabic = new TextView(this);
-        arabic.setText("ضوء التقنية");
-        arabic.setTextColor(Color.WHITE);
-        arabic.setTextSize(compact ? 31 : 38);
-        arabic.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        arabic.setGravity(Gravity.CENTER);
-        arabic.setPadding(0, dp(20), 0, dp(4));
-        root.addView(arabic);
-
-        TextView english = new TextView(this);
-        english.setText("TechLight Customer Display");
-        english.setTextColor(Color.rgb(225, 213, 239));
-        english.setTextSize(compact ? 15 : 18);
-        english.setGravity(Gravity.CENTER);
-        root.addView(english);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText("شاشة عميل ذكية  •  طلبات مباشرة  •  محتوى إعلاني");
-        subtitle.setTextColor(Color.WHITE);
-        subtitle.setAlpha(0.88f);
-        subtitle.setTextSize(compact ? 12 : 15);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, dp(17), 0, 0);
-        root.addView(subtitle);
+        icon.setImageResource(R.drawable.techlight_brand_transparent);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        root.addView(icon, new LinearLayout.LayoutParams(
+                dp(compact ? 310 : 500), dp(compact ? 100 : 150)
+        ));
         setContentView(root);
 
         icon.setAlpha(0f);
         icon.setScaleX(0.72f);
         icon.setScaleY(0.72f);
-        icon.setRotation(-7f);
-        icon.animate().alpha(1f).scaleX(1f).scaleY(1f).rotation(0f)
+        icon.animate().alpha(1f).scaleX(1f).scaleY(1f)
                 .setDuration(720).setInterpolator(new DecelerateInterpolator()).start();
-        arabic.setAlpha(0f);
-        arabic.setTranslationY(dp(10));
-        arabic.animate().alpha(1f).translationY(0).setStartDelay(260).setDuration(520).start();
-        english.setAlpha(0f);
-        english.animate().alpha(1f).setStartDelay(480).setDuration(420).start();
-        subtitle.setAlpha(0f);
-        subtitle.animate().alpha(0.88f).setStartDelay(650).setDuration(420).start();
+        ObjectAnimator shine = ObjectAnimator.ofFloat(icon, View.ALPHA, 0.72f, 1f);
+        shine.setDuration(640);
+        shine.setRepeatMode(ValueAnimator.REVERSE);
+        shine.setRepeatCount(1);
+        shine.start();
 
         handler.postDelayed(() -> {
             TechProSession session = new TechProSession(this);
@@ -91,7 +65,7 @@ public final class SplashActivity extends Activity {
             startActivity(new Intent(this, ready ? MainActivity.class : LoginActivity.class));
             finish();
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        }, 2200);
+        }, 1250);
     }
 
     @Override protected void onDestroy() {

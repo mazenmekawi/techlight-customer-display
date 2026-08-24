@@ -103,9 +103,9 @@ public final class LoginActivity extends Activity {
         card.setElevation(dp(14));
 
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.ic_techlight);
+        logo.setImageResource(R.drawable.techlight_brand_transparent);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        card.addView(logo, new LinearLayout.LayoutParams(dp(compact ? 76 : 92), dp(compact ? 76 : 92)));
+        card.addView(logo, new LinearLayout.LayoutParams(dp(compact ? 230 : 300), dp(compact ? 66 : 82)));
 
         TextView heading = text("تسجيل شاشة العميل", compact ? 25 : 30, 0xFF241D29);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
