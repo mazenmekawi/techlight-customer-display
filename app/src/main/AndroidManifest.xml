@@ -31,13 +31,10 @@
         <activity
             android:name=".MainActivity"
             android:alwaysRetainTaskState="true"
-            android:exported="false"
-            android:screenOrientation="fullSensor"
-            android:launchMode="singleTask" />
-        <activity
-            android:name=".SplashActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="true"
-            android:screenOrientation="fullSensor">
+            android:screenOrientation="fullSensor"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

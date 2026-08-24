@@ -476,7 +476,7 @@ public final class SettingsActivity extends Activity {
         idleMessage = input(preferences.getString("idle_message", "أهلًا وسهلًا بك — طلبك سيظهر هنا"));
         section.addView(idleMessage);
         section.addView(fieldLabel("رسالة العميل بعد تنفيذ الطلب"));
-        completedMessage = input(preferences.getString("completed_message", "طلبك يُجهّز بكل حب"));
+        completedMessage = input(preferences.getString("completed_message", "تم اعتماد طلبك بنجاح"));
         section.addView(completedMessage);
         section.addView(fieldLabel("نص حالة الشكر بعد الدفع"));
         thanks = input(preferences.getString("thanks", "شكرًا لزيارتكم"));
