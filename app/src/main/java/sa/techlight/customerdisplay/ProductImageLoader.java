@@ -60,24 +60,36 @@ public final class ProductImageLoader {
         target.setVisibility(View.GONE);
         if (key.isEmpty()) return;
 
-        Bitmap cached = memory.get(key);
+        Bitmap cached;
+        synchronized (memory) {
+            cached = memory.get(key);
+        }
         if (cached != null && !cached.isRecycled()) {
             showIfCurrent(key, cached, target, onLoaded);
             return;
         }
 
-        worker.execute(() -> {
-            Bitmap decoded = decodeDataUri(key);
-            if (decoded == null) {
-                for (String candidate : candidateUrls(key)) {
-                    decoded = download(candidate);
-                    if (decoded != null) break;
+        if (worker.isShutdown()) return;
+        try {
+            worker.execute(() -> {
+                Bitmap decoded = decodeDataUri(key);
+                if (decoded == null) {
+                    for (String candidate : candidateUrls(key)) {
+                        decoded = download(candidate);
+                        if (decoded != null) break;
+                    }
                 }
-            }
-            if (decoded == null) return;
-            memory.put(key, decoded);
-            showIfCurrent(key, decoded, target, onLoaded);
-        });
+                if (decoded == null) return;
+                try {
+                    synchronized (memory) {
+                        memory.put(key, decoded);
+                    }
+                } catch (Throwable ignored) { }
+                showIfCurrent(key, decoded, target, onLoaded);
+            });
+        } catch (RuntimeException ignored) {
+            // The activity may have closed between the request and executor dispatch.
+        }
     }
 
     private Bitmap download(String url) {
@@ -97,7 +109,7 @@ public final class ProductImageLoader {
                 if (bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) return null;
                 return decodeSampled(bytes, 420, 420);
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
             return null;
         }
     }
@@ -110,7 +122,7 @@ public final class ProductImageLoader {
             byte[] bytes = Base64.decode(value.substring(comma + 1), Base64.DEFAULT);
             if (bytes.length > MAX_IMAGE_BYTES) return null;
             return decodeSampled(bytes, 420, 420);
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
             return null;
         }
     }
@@ -177,5 +189,14 @@ public final class ProductImageLoader {
         worker.shutdownNow();
         http.dispatcher().cancelAll();
         http.connectionPool().evictAll();
+        synchronized (memory) {
+            memory.evictAll();
+        }
+    }
+
+    public void trimMemory() {
+        synchronized (memory) {
+            memory.evictAll();
+        }
     }
 }

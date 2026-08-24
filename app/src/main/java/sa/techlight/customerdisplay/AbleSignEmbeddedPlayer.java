@@ -43,6 +43,8 @@ public final class AbleSignEmbeddedPlayer {
     private final Listener listener;
     private boolean loaded;
     private boolean visible;
+    private boolean resetting;
+    private boolean destroyed;
 
     public AbleSignEmbeddedPlayer(Activity activity, FrameLayout host, Listener listener) {
         this.listener = listener;
@@ -99,7 +101,7 @@ public final class AbleSignEmbeddedPlayer {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setAllowContentAccess(true);
         settings.setAllowFileAccess(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " TechLightCustomerDisplay/1.5");
+        settings.setUserAgentString(settings.getUserAgentString() + " TechLightCustomerDisplay/1.6");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
             CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -146,6 +148,7 @@ public final class AbleSignEmbeddedPlayer {
     }
 
     public void show() {
+        if (destroyed) return;
         visible = true;
         overlay.animate().cancel();
         overlay.setVisibility(View.VISIBLE);
@@ -154,7 +157,7 @@ public final class AbleSignEmbeddedPlayer {
                 .setInterpolator(new DecelerateInterpolator()).start();
         player.onResume();
         player.resumeTimers();
-        if (!loaded) {
+        if (!loaded && !resetting) {
             statusBadge.animate().cancel();
             statusBadge.setAlpha(1f);
             state.setText("AbleSign — جاري تشغيل المشغّل");
@@ -174,19 +177,33 @@ public final class AbleSignEmbeddedPlayer {
 
     /** Clears the official player's saved pairing so it generates a fresh code. */
     public void resetPairing() {
+        if (destroyed) return;
         loaded = false;
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.removeAllCookies(null);
-        cookies.flush();
-        WebStorage.getInstance().deleteAllData();
-        player.stopLoading();
-        player.clearCache(true);
-        player.clearHistory();
-        player.clearFormData();
+        resetting = true;
         statusBadge.animate().cancel();
         statusBadge.setAlpha(1f);
-        state.setText("AbleSign — سيتم إنشاء كود اقتران جديد");
-        report("تم مسح اقتران AbleSign؛ سيظهر كود جديد عند تشغيل الإعلانات", false);
+        state.setText("AbleSign — جارٍ إنشاء كود اقتران جديد");
+        try {
+            WebStorage.getInstance().deleteAllData();
+            player.stopLoading();
+            player.clearCache(true);
+            player.clearHistory();
+            player.clearFormData();
+            CookieManager cookies = CookieManager.getInstance();
+            cookies.removeAllCookies(removed -> {
+                if (destroyed) return;
+                player.post(() -> {
+                    if (destroyed) return;
+                cookies.flush();
+                resetting = false;
+                report("تم مسح اقتران AbleSign؛ سيظهر كود جديد الآن", false);
+                if (visible) player.loadUrl(PLAYER_URL);
+                });
+            });
+        } catch (Throwable error) {
+            resetting = false;
+            report("تعذر مسح اقتران AbleSign بأمان", true);
+        }
     }
 
     public boolean isVisible() {
@@ -198,7 +215,9 @@ public final class AbleSignEmbeddedPlayer {
     }
 
     public void shutdown() {
+        destroyed = true;
         visible = false;
+        resetting = false;
         overlay.animate().cancel();
         try {
             player.stopLoading();

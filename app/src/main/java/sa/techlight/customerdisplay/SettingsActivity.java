@@ -23,6 +23,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,14 +40,23 @@ public final class SettingsActivity extends Activity {
     private EditText welcome;
     private EditText thanks;
     private EditText footer;
+    private EditText idleMessage;
+    private EditText completedMessage;
     private EditText color;
+    private EditText panelColor;
     private ImageView logo;
     private RadioGroup themeGroup;
     private RadioGroup orientationGroup;
     private RadioGroup ableGroup;
+    private RadioGroup densityGroup;
+    private RadioGroup rowStyleGroup;
+    private RadioGroup imageGroup;
+    private RadioGroup breakdownGroup;
+    private SeekBar ableDelay;
+    private TextView ableDelayValue;
     private int selectedTemplate;
-    private final LinearLayout[] templateCards = new LinearLayout[2];
-    private final TextView[] templateChecks = new TextView[2];
+    private final LinearLayout[] templateCards = new LinearLayout[3];
+    private final TextView[] templateChecks = new TextView[3];
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -139,6 +149,7 @@ public final class SettingsActivity extends Activity {
         addHeader(root);
         addAppearanceSection(root);
         addTemplateSection(root);
+        addDisplayOptionsSection(root);
         addIdentitySection(root);
         addAbleSignSection(root);
         addAccountSection(root);
@@ -247,14 +258,14 @@ public final class SettingsActivity extends Activity {
                 "اختر واجهة العميل",
                 "عاين التصاميم الثلاثة هنا واضغط على التصميم المطلوب قبل الحفظ."
         );
-        selectedTemplate = Math.min(1, Math.max(0, preferences.getInt("template", 0)));
+        selectedTemplate = Math.min(2, Math.max(0, preferences.getInt("template", 0)));
         boolean wide = getResources().getConfiguration().screenWidthDp >= 700;
         LinearLayout choices = new LinearLayout(this);
         choices.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         section.addView(choices);
-        String[] titles = {"ذكي تلقائي", "الإجمالي أولًا"};
-        String[] subtitles = {"يتكيّف تلقائيًا مع مساحة الشاشة", "يبرز المبلغ ثم تفاصيل الطلب"};
-        for (int i = 0; i < 2; i++) {
+        String[] titles = {"Foodics حديث", "Google نظيف", "الإجمالي أولًا"};
+        String[] subtitles = {"طلب واسع وملخص جانبي", "بطاقات ومسافات مريحة", "يبرز المبلغ قبل التفاصيل"};
+        for (int i = 0; i < 3; i++) {
             LinearLayout card = templateCard(i, titles[i], subtitles[i]);
             templateCards[i] = card;
             if (wide) {
@@ -310,7 +321,7 @@ public final class SettingsActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
         preview.setOrientation(LinearLayout.HORIZONTAL);
-        if (index == 1) {
+        if (index == 2) {
             LinearLayout.LayoutParams totalParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
             totalParams.setMargins(0, 0, dp(5), 0);
             preview.addView(totalBlock, totalParams);
@@ -347,6 +358,46 @@ public final class SettingsActivity extends Activity {
         return card;
     }
 
+    private void addDisplayOptionsSection(LinearLayout root) {
+        LinearLayout section = section(
+                root,
+                "تفاصيل تجربة العميل",
+                "تحكم في كثافة الطلب والصور وطريقة الصفوف دون التأثير على اتصال TechPro."
+        );
+
+        section.addView(fieldLabel("مساحة صفوف الأصناف"));
+        densityGroup = new RadioGroup(this);
+        densityGroup.setOrientation(RadioGroup.HORIZONTAL);
+        int density = preferences.getInt("row_density", 0);
+        densityGroup.addView(radioOption("مريح وفخم", 400, density == 0), radioParams());
+        densityGroup.addView(radioOption("مضغوط لطلبات أكثر", 401, density == 1), radioParams());
+        section.addView(densityGroup);
+
+        section.addView(fieldLabel("شكل صف المنتج"));
+        rowStyleGroup = new RadioGroup(this);
+        rowStyleGroup.setOrientation(RadioGroup.HORIZONTAL);
+        int rowStyle = preferences.getInt("row_style", 0);
+        rowStyleGroup.addView(radioOption("بطاقات متحركة", 410, rowStyle == 0), radioParams());
+        rowStyleGroup.addView(radioOption("فواصل خفيفة", 411, rowStyle == 1), radioParams());
+        section.addView(rowStyleGroup);
+
+        section.addView(fieldLabel("صور المنتجات"));
+        imageGroup = new RadioGroup(this);
+        imageGroup.setOrientation(RadioGroup.HORIZONTAL);
+        boolean images = preferences.getBoolean("show_product_images", true);
+        imageGroup.addView(radioOption("اعرضها عند توفرها", 420, images), radioParams());
+        imageGroup.addView(radioOption("أسماء فقط", 421, !images), radioParams());
+        section.addView(imageGroup);
+
+        section.addView(fieldLabel("تفاصيل الملخص"));
+        breakdownGroup = new RadioGroup(this);
+        breakdownGroup.setOrientation(RadioGroup.HORIZONTAL);
+        boolean breakdown = preferences.getBoolean("show_breakdown", true);
+        breakdownGroup.addView(radioOption("المجموع والضريبة والخصم", 430, breakdown), radioParams());
+        breakdownGroup.addView(radioOption("الإجمالي فقط", 431, !breakdown), radioParams());
+        section.addView(breakdownGroup);
+    }
+
     private void refreshTemplateCards(boolean animate) {
         for (int i = 0; i < templateCards.length; i++) {
             if (templateCards[i] == null) continue;
@@ -365,7 +416,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "هوية المتجر والنصوص",
-                "هذه البيانات فقط هي التي يراها العميل بعد الربط؛ شعار ضوء التقنية لا يظهر في واجهة الطلب."
+                "شعار العميل يظهر في رأس الطلب، وشعار ضوء التقنية يظهر منفصلًا داخل لوحة الملخص."
         );
 
         section.addView(fieldLabel("لون الهوية — اللون الأساسي في الشريط والحركات"));
@@ -384,10 +435,32 @@ public final class SettingsActivity extends Activity {
         }
         section.addView(presets);
 
-        section.addView(fieldLabel("نص الترحيب"));
+        section.addView(fieldLabel("لون لوحة الإجمالي وشعار ضوء التقنية"));
+        panelColor = input(preferences.getString("panel_color", "#4D0E81"));
+        section.addView(panelColor);
+        LinearLayout panelPresets = new LinearLayout(this);
+        String[] panelColors = {"#4D0E81", "#5B35C8", "#222B45", "#006B5E", "#8F1D3F", "#174EA6"};
+        for (String value : panelColors) {
+            TextView swatch = text("●", 28, Color.parseColor(value));
+            swatch.setGravity(Gravity.CENTER);
+            swatch.setBackground(round(0xFFF6F4F7, 12));
+            swatch.setOnClickListener(view -> panelColor.setText(value));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1);
+            params.setMargins(dp(3), dp(5), dp(3), dp(5));
+            panelPresets.addView(swatch, params);
+        }
+        section.addView(panelPresets);
+
+        section.addView(fieldLabel("عنوان الشاشة العلوي"));
         welcome = input(preferences.getString("welcome", "أهلًا وسهلًا بك"));
         section.addView(welcome);
-        section.addView(fieldLabel("نص الشكر بعد الدفع"));
+        section.addView(fieldLabel("العبارة فوق الوجه المبتسم قبل الطلب"));
+        idleMessage = input(preferences.getString("idle_message", "أهلًا وسهلًا بك — طلبك سيظهر هنا"));
+        section.addView(idleMessage);
+        section.addView(fieldLabel("العبارة فوق شخصية الطاهي بعد تنفيذ الطلب"));
+        completedMessage = input(preferences.getString("completed_message", "طلبك يُجهّز بكل حب"));
+        section.addView(completedMessage);
+        section.addView(fieldLabel("نص حالة الشكر بعد الدفع"));
         thanks = input(preferences.getString("thanks", "شكرًا لزيارتكم"));
         section.addView(thanks);
         section.addView(fieldLabel("النص السفلي"));
@@ -428,7 +501,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "AbleSign والمحتوى الإعلاني",
-                "يظهر بعد 10 ثوانٍ من عدم وجود طلب ويختفي فور وصول أول صنف. أول تشغيل يعرض كود اقتران من 6 أرقام داخل الشاشة."
+                "يختفي فور وصول أول صنف، ويعمل بعد تنفيذ الطلب وفق المؤقت الذي تختاره من 3 إلى 60 ثانية."
         );
         AbleSignController controller = new AbleSignController(this);
         boolean installed = controller.isInstalled();
@@ -451,6 +524,31 @@ public final class SettingsActivity extends Activity {
         ableGroup.addView(compatibility);
         section.addView(ableGroup);
 
+        section.addView(fieldLabel("مدة ظهور رسالة الطاهي قبل تشغيل AbleSign"));
+        ableDelayValue = text("", 15, ACCENT);
+        ableDelayValue.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        ableDelayValue.setGravity(Gravity.CENTER);
+        section.addView(ableDelayValue);
+        ableDelay = new SeekBar(this);
+        ableDelay.setMax(57);
+        int savedDelay = Math.max(3, Math.min(60, preferences.getInt("able_delay_seconds", 10)));
+        ableDelay.setProgress(savedDelay - 3);
+        ableDelay.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        ableDelay.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        updateAbleDelayLabel(savedDelay);
+        ableDelay.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateAbleDelayLabel(progress + 3);
+            }
+
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { }
+        });
+        section.addView(ableDelay, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50)
+        ));
+
         TextView instructions = text(
                 "طريقة الربط: اختر الوضع المدمج واحفظ. بعد 10 ثوانٍ سيظهر كود من 6 أرقام؛ أدخله مرة واحدة في حساب AbleSign من Add Screen. سيبقى الاقتران محفوظًا بعد إغلاق التطبيق.",
                 12,
@@ -460,13 +558,30 @@ public final class SettingsActivity extends Activity {
         instructions.setBackground(round(0xFFF7F4F8, 12));
         section.addView(instructions);
 
-        TextView reset = button("إعادة ضبط AbleSign وإظهار كود جديد", false);
+        TextView preview = button("فتح AbleSign الآن للمعاينة", false);
+        preview.setOnClickListener(view -> {
+            preferences.edit()
+                    .putBoolean("able_preview_requested", true)
+                    .putInt("able_mode", 1)
+                    .apply();
+            if (ableGroup != null) ableGroup.check(301);
+            Toast.makeText(this, "احفظ الإعدادات لفتح AbleSign الآن", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+        );
+        previewParams.setMargins(0, dp(10), 0, 0);
+        section.addView(preview, previewParams);
+
+        TextView reset = button("حذف ربط AbleSign وإظهار كود جديد", false);
+        reset.setTextColor(0xFFB42318);
         reset.setOnClickListener(view -> new AlertDialog.Builder(this)
                 .setTitle("إنشاء كود اقتران جديد؟")
                 .setMessage("سيُلغى اقتران AbleSign المحفوظ في هذه الشاشة، ثم يظهر كود جديد عند تشغيل الإعلانات.")
                 .setPositiveButton("إنشاء كود جديد", (dialog, which) -> {
                     preferences.edit()
                             .putBoolean("able_reset_requested", true)
+                            .putBoolean("able_preview_requested", true)
                             .putInt("able_mode", 1)
                             .apply();
                     if (ableGroup != null) ableGroup.check(301);
@@ -479,6 +594,12 @@ public final class SettingsActivity extends Activity {
         );
         resetParams.setMargins(0, dp(10), 0, 0);
         section.addView(reset, resetParams);
+    }
+
+    private void updateAbleDelayLabel(int seconds) {
+        if (ableDelayValue != null) {
+            ableDelayValue.setText("بعد تنفيذ الطلب: " + seconds + " ثانية");
+        }
     }
 
     private void addAccountSection(LinearLayout root) {
@@ -668,10 +789,17 @@ public final class SettingsActivity extends Activity {
 
     private void saveAndClose() {
         String colorValue = color.getText().toString().trim();
+        String panelColorValue = panelColor == null ? colorValue : panelColor.getText().toString().trim();
         try {
             Color.parseColor(colorValue);
         } catch (Exception error) {
             color.setError("اللون غير صحيح");
+            return;
+        }
+        try {
+            Color.parseColor(panelColorValue);
+        } catch (Exception error) {
+            panelColor.setError("لون لوحة الإجمالي غير صحيح");
             return;
         }
         int ableMode = ableGroup == null ? 0
@@ -685,9 +813,17 @@ public final class SettingsActivity extends Activity {
                         : orientationGroup.getCheckedRadioButtonId() == 201 ? 1
                         : orientationGroup.getCheckedRadioButtonId() == 202 ? 2 : 0)
                 .putString("color", colorValue)
+                .putString("panel_color", panelColorValue)
                 .putString("welcome", welcome.getText().toString().trim())
+                .putString("idle_message", idleMessage == null ? "" : idleMessage.getText().toString().trim())
+                .putString("completed_message", completedMessage == null ? "" : completedMessage.getText().toString().trim())
                 .putString("thanks", thanks.getText().toString().trim())
                 .putString("footer", footer.getText().toString().trim())
+                .putInt("row_density", densityGroup != null && densityGroup.getCheckedRadioButtonId() == 401 ? 1 : 0)
+                .putInt("row_style", rowStyleGroup != null && rowStyleGroup.getCheckedRadioButtonId() == 411 ? 1 : 0)
+                .putBoolean("show_product_images", imageGroup == null || imageGroup.getCheckedRadioButtonId() != 421)
+                .putBoolean("show_breakdown", breakdownGroup == null || breakdownGroup.getCheckedRadioButtonId() != 431)
+                .putInt("able_delay_seconds", ableDelay == null ? 10 : ableDelay.getProgress() + 3)
                 .putInt("able_mode", ableMode)
                 .remove("able_idle")
                 .apply();
