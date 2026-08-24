@@ -44,9 +44,6 @@ public final class SettingsActivity extends Activity {
     private RadioGroup themeGroup;
     private RadioGroup orientationGroup;
     private RadioGroup ableGroup;
-    private EditText ableApiKey;
-    private EditText ableScreenId;
-    private EditText ableWorkspaceId;
     private int selectedTemplate;
     private final LinearLayout[] templateCards = new LinearLayout[2];
     private final TextView[] templateChecks = new TextView[2];
@@ -431,18 +428,14 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "AbleSign والمحتوى الإعلاني",
-                "يظهر المحتوى بعد 10 ثوانٍ من عدم وجود طلب، ويختفي فور وصول أول صنف. الوضع المدمج يبقي شاشة العميل متصلة دائمًا."
+                "يظهر بعد 10 ثوانٍ من عدم وجود طلب ويختفي فور وصول أول صنف. أول تشغيل يعرض كود اقتران من 6 أرقام داخل الشاشة."
         );
         AbleSignController controller = new AbleSignController(this);
         boolean installed = controller.isInstalled();
-        AbleSignSession embedded = new AbleSignSession(this);
-        boolean configured = embedded.isConfigured();
         TextView state = text(
-                configured ? "●  المشغّل المدمج مضبوط وجاهز"
-                        : installed ? "●  تطبيق AbleSign مثبت — يمكنك استخدام وضع التوافق"
-                        : "●  أدخل API Key ورقم الشاشة لتفعيل المشغّل المدمج",
+                "●  المشغّل الرسمي مدمج — لا يحتاج API Key أو رقم شاشة",
                 14,
-                configured || installed ? 0xFF12805C : 0xFF9A6700
+                0xFF12805C
         );
         state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         state.setPadding(0, dp(3), 0, dp(8));
@@ -450,31 +443,42 @@ public final class SettingsActivity extends Activity {
         ableGroup = new RadioGroup(this);
         ableGroup.setOrientation(RadioGroup.VERTICAL);
         int mode = preferences.getInt("able_mode", 0);
-        if (mode == 1 && !configured && installed) mode = 2;
-        if (mode == 2 && !installed) mode = configured ? 1 : 0;
+        if (mode == 2 && !installed) mode = 1;
         ableGroup.addView(radioOption("إيقاف المحتوى الإعلاني", 300, mode == 0));
-        ableGroup.addView(radioOption("مشغّل AbleSign مدمج داخل شاشة العميل — موصى به", 301, mode == 1));
+        ableGroup.addView(radioOption("AbleSign مدمج — اقتران بكود 6 أرقام (موصى به)", 301, mode == 1));
         RadioButton compatibility = radioOption("وضع التوافق مع تطبيق AbleSign المثبت", 302, mode == 2);
         compatibility.setEnabled(installed);
         ableGroup.addView(compatibility);
         section.addView(ableGroup);
 
-        section.addView(fieldLabel("AbleSign API Key — من Account ← API Keys"));
-        ableApiKey = input(embedded.apiKey());
-        ableApiKey.setHint("ak_••••••••••••");
-        ableApiKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        section.addView(ableApiKey);
+        TextView instructions = text(
+                "طريقة الربط: اختر الوضع المدمج واحفظ. بعد 10 ثوانٍ سيظهر كود من 6 أرقام؛ أدخله مرة واحدة في حساب AbleSign من Add Screen. سيبقى الاقتران محفوظًا بعد إغلاق التطبيق.",
+                12,
+                0xFF625A67
+        );
+        instructions.setPadding(dp(12), dp(10), dp(12), dp(10));
+        instructions.setBackground(round(0xFFF7F4F8, 12));
+        section.addView(instructions);
 
-        section.addView(fieldLabel("رقم شاشة AbleSign"));
-        ableScreenId = input(embedded.screenId() > 0 ? String.valueOf(embedded.screenId()) : "");
-        ableScreenId.setHint("مثال: 12345");
-        ableScreenId.setInputType(InputType.TYPE_CLASS_NUMBER);
-        section.addView(ableScreenId);
-
-        section.addView(fieldLabel("Workspace ID — اختياري"));
-        ableWorkspaceId = input(embedded.workspaceId());
-        ableWorkspaceId.setHint("اتركه فارغًا للحساب الافتراضي");
-        section.addView(ableWorkspaceId);
+        TextView reset = button("إعادة ضبط AbleSign وإظهار كود جديد", false);
+        reset.setOnClickListener(view -> new AlertDialog.Builder(this)
+                .setTitle("إنشاء كود اقتران جديد؟")
+                .setMessage("سيُلغى اقتران AbleSign المحفوظ في هذه الشاشة، ثم يظهر كود جديد عند تشغيل الإعلانات.")
+                .setPositiveButton("إنشاء كود جديد", (dialog, which) -> {
+                    preferences.edit()
+                            .putBoolean("able_reset_requested", true)
+                            .putInt("able_mode", 1)
+                            .apply();
+                    if (ableGroup != null) ableGroup.check(301);
+                    Toast.makeText(this, "سيظهر كود AbleSign الجديد بعد الحفظ", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("إلغاء", null)
+                .show());
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+        );
+        resetParams.setMargins(0, dp(10), 0, 0);
+        section.addView(reset, resetParams);
     }
 
     private void addAccountSection(LinearLayout root) {
@@ -673,33 +677,6 @@ public final class SettingsActivity extends Activity {
         int ableMode = ableGroup == null ? 0
                 : ableGroup.getCheckedRadioButtonId() == 301 ? 1
                 : ableGroup.getCheckedRadioButtonId() == 302 ? 2 : 0;
-        String apiKeyValue = ableApiKey == null ? "" : ableApiKey.getText().toString().trim();
-        String screenValue = ableScreenId == null ? "" : ableScreenId.getText().toString().trim();
-        long screen = 0;
-        if (!screenValue.isEmpty()) {
-            try { screen = Long.parseLong(screenValue); }
-            catch (Exception error) {
-                ableScreenId.setError("رقم الشاشة غير صحيح");
-                return;
-            }
-        }
-        if (ableMode == 1 && (apiKeyValue.isEmpty() || screen <= 0)) {
-            if (apiKeyValue.isEmpty()) ableApiKey.setError("أدخل API Key للمشغّل المدمج");
-            if (screen <= 0) ableScreenId.setError("أدخل رقم شاشة AbleSign");
-            return;
-        }
-        try {
-            AbleSignSession embedded = new AbleSignSession(this);
-            if (!apiKeyValue.isEmpty() && screen > 0) {
-                embedded.save(apiKeyValue, screen,
-                        ableWorkspaceId == null ? "" : ableWorkspaceId.getText().toString().trim());
-            } else if (apiKeyValue.isEmpty() && screenValue.isEmpty()) {
-                embedded.clear();
-            }
-        } catch (Exception error) {
-            Toast.makeText(this, "تعذر حفظ إعداد AbleSign بأمان", Toast.LENGTH_LONG).show();
-            return;
-        }
         preferences.edit()
                 .putInt("template", selectedTemplate)
                 .putString("theme", themeGroup != null && themeGroup.getCheckedRadioButtonId() == 101
