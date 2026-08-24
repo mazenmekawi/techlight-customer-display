@@ -20,8 +20,9 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,6 +32,7 @@ import java.util.Locale;
 
 public final class SettingsActivity extends Activity {
     private static final int PICK_LOGO = 42;
+    private static final int RESYNC_CATALOG = 43;
     private static final int ACCENT = 0xFF5B2A86;
 
     private SharedPreferences preferences;
@@ -39,10 +41,12 @@ public final class SettingsActivity extends Activity {
     private EditText footer;
     private EditText color;
     private ImageView logo;
-    private Switch ableIdle;
+    private RadioGroup themeGroup;
+    private RadioGroup orientationGroup;
+    private RadioGroup ableGroup;
     private int selectedTemplate;
-    private final LinearLayout[] templateCards = new LinearLayout[3];
-    private final TextView[] templateChecks = new TextView[3];
+    private final LinearLayout[] templateCards = new LinearLayout[2];
+    private final TextView[] templateChecks = new TextView[2];
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -133,9 +137,11 @@ public final class SettingsActivity extends Activity {
         scroll.addView(root);
 
         addHeader(root);
+        addAppearanceSection(root);
         addTemplateSection(root);
         addIdentitySection(root);
         addAbleSignSection(root);
+        addAccountSection(root);
         addConnectionSection(root);
 
         TextView save = button("حفظ الإعدادات والعودة للشاشة", true);
@@ -189,20 +195,66 @@ public final class SettingsActivity extends Activity {
         return card;
     }
 
+    private void addAppearanceSection(LinearLayout root) {
+        LinearLayout section = section(
+                root,
+                "المظهر واتجاه الشاشة",
+                "خيارات واضحة فقط؛ اختر الشكل والاتجاه ثم احفظ. الوضع التلقائي هو الأنسب لمعظم الأجهزة."
+        );
+
+        section.addView(fieldLabel("ألوان شاشة العميل"));
+        themeGroup = new RadioGroup(this);
+        themeGroup.setOrientation(RadioGroup.HORIZONTAL);
+        themeGroup.setGravity(Gravity.CENTER_VERTICAL);
+        String savedTheme = preferences.getString("theme", "light");
+        themeGroup.addView(radioOption("فاتح", 100, "light".equals(savedTheme)), radioParams());
+        themeGroup.addView(radioOption("داكن", 101, "dark".equals(savedTheme)), radioParams());
+        section.addView(themeGroup);
+
+        section.addView(fieldLabel("اتجاه العرض"));
+        orientationGroup = new RadioGroup(this);
+        orientationGroup.setOrientation(RadioGroup.VERTICAL);
+        int orientation = preferences.getInt("orientation", 0);
+        orientationGroup.addView(radioOption("تلقائي — يدور حسب وضع الجهاز", 200, orientation == 0));
+        orientationGroup.addView(radioOption("أفقي — للشاشات والتلفزيون", 201, orientation == 1));
+        orientationGroup.addView(radioOption("رأسي — للتابلت العمودي", 202, orientation == 2));
+        section.addView(orientationGroup);
+    }
+
+    private RadioButton radioOption(String label, int id, boolean checked) {
+        RadioButton option = new RadioButton(this);
+        option.setId(id);
+        option.setText(label);
+        option.setTextSize(14);
+        option.setTextColor(0xFF403A44);
+        option.setGravity(Gravity.CENTER_VERTICAL);
+        option.setPadding(dp(6), dp(8), dp(6), dp(8));
+        option.setButtonTintList(new ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                new int[]{ACCENT, 0xFFAFA8B2}
+        ));
+        option.setChecked(checked);
+        return option;
+    }
+
+    private RadioGroup.LayoutParams radioParams() {
+        return new RadioGroup.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+    }
+
     private void addTemplateSection(LinearLayout root) {
         LinearLayout section = section(
                 root,
                 "اختر واجهة العميل",
                 "عاين التصاميم الثلاثة هنا واضغط على التصميم المطلوب قبل الحفظ."
         );
-        selectedTemplate = preferences.getInt("template", 0);
+        selectedTemplate = Math.min(1, Math.max(0, preferences.getInt("template", 0)));
         boolean wide = getResources().getConfiguration().screenWidthDp >= 700;
         LinearLayout choices = new LinearLayout(this);
         choices.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         section.addView(choices);
-        String[] titles = {"حديث", "مكدّس", "الإجمالي أولًا"};
-        String[] subtitles = {"الطلب والإجمالي جنبًا إلى جنب", "مناسب للشاشات الرأسية", "يبرز المبلغ قبل التفاصيل"};
-        for (int i = 0; i < 3; i++) {
+        String[] titles = {"ذكي تلقائي", "الإجمالي أولًا"};
+        String[] subtitles = {"يتكيّف تلقائيًا مع مساحة الشاشة", "يبرز المبلغ ثم تفاصيل الطلب"};
+        for (int i = 0; i < 2; i++) {
             LinearLayout card = templateCard(i, titles[i], subtitles[i]);
             templateCards[i] = card;
             if (wide) {
@@ -257,29 +309,17 @@ public final class SettingsActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+        preview.setOrientation(LinearLayout.HORIZONTAL);
         if (index == 1) {
-            preview.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
-            );
-            orderParams.setMargins(0, 0, 0, dp(5));
-            preview.addView(order, orderParams);
-            preview.addView(totalBlock, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
-            ));
+            LinearLayout.LayoutParams totalParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+            totalParams.setMargins(0, 0, dp(5), 0);
+            preview.addView(totalBlock, totalParams);
+            preview.addView(order, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
         } else {
-            preview.setOrientation(LinearLayout.HORIZONTAL);
-            if (index == 2) {
-                LinearLayout.LayoutParams totalParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
-                totalParams.setMargins(0, 0, dp(5), 0);
-                preview.addView(totalBlock, totalParams);
-                preview.addView(order, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
-            } else {
-                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2);
-                orderParams.setMargins(0, 0, dp(5), 0);
-                preview.addView(order, orderParams);
-                preview.addView(totalBlock, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-            }
+            LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2);
+            orderParams.setMargins(0, 0, dp(5), 0);
+            preview.addView(order, orderParams);
+            preview.addView(totalBlock, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         }
         card.addView(preview, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
@@ -388,7 +428,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "AbleSign والمحتوى الإعلاني",
-                "يتعرّف التطبيق على AbleSign كتطبيق مستقل ويفتحه وقت خمول شاشة الطلب، بدون دمجه داخل التطبيق."
+                "يعمل AbleSign كتطبيق مستقل، وتعود شاشة الطلب تلقائيًا إلى الواجهة فور وصول صنف جديد."
         );
         AbleSignController controller = new AbleSignController(this);
         boolean installed = controller.isInstalled();
@@ -396,15 +436,79 @@ public final class SettingsActivity extends Activity {
         state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         state.setPadding(0, dp(3), 0, dp(8));
         section.addView(state);
-        ableIdle = new Switch(this);
-        ableIdle.setText("فتح AbleSign تلقائيًا عند عدم وجود طلب");
-        ableIdle.setTextSize(14);
-        ableIdle.setTextColor(0xFF403A44);
-        ableIdle.setGravity(Gravity.CENTER_VERTICAL);
-        ableIdle.setPadding(0, dp(7), 0, dp(7));
-        ableIdle.setChecked(preferences.getBoolean("able_idle", false) && installed);
-        ableIdle.setEnabled(installed);
-        section.addView(ableIdle);
+        ableGroup = new RadioGroup(this);
+        ableGroup.setOrientation(RadioGroup.VERTICAL);
+        int mode = installed ? preferences.getInt("able_mode", 0) : 0;
+        ableGroup.addView(radioOption("إيقاف AbleSign", 300, mode == 0));
+        ableGroup.addView(radioOption("فتحه بعد انتهاء الطلب", 301, mode == 1));
+        ableGroup.addView(radioOption("فتحه عند انتظار طلب لمدة 30 ثانية", 302, mode == 2));
+        for (int index = 0; index < ableGroup.getChildCount(); index++) {
+            ableGroup.getChildAt(index).setEnabled(installed || index == 0);
+        }
+        section.addView(ableGroup);
+    }
+
+    private void addAccountSection(LinearLayout root) {
+        TechProSession session = new TechProSession(this);
+        ProductCatalog catalog = new ProductCatalog(this);
+        int catalogCount = catalog.count();
+        long syncedAt = catalog.syncedAt();
+        catalog.close();
+        String syncText = syncedAt == 0
+                ? "لم تتم المزامنة"
+                : new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(new Date(syncedAt));
+
+        LinearLayout section = section(
+                root,
+                "حساب TechPro والأصناف",
+                "تسجيل الدخول هو الذي يحمّل أسماء الأصناف وأسعار الحساب قبل ربط شاشة العميل."
+        );
+        TextView account = text(
+                "الحساب: " + (session.accountName().isEmpty() ? session.userName() : session.accountName())
+                        + "\nدليل الأصناف: " + catalogCount + " سجل"
+                        + "\nآخر مزامنة: " + syncText,
+                13,
+                0xFF514A55
+        );
+        account.setPadding(dp(12), dp(10), dp(12), dp(10));
+        account.setBackground(round(0xFFF7F4F8, 12));
+        section.addView(account);
+
+        TextView sync = button("تحديث أسماء الأصناف والأسعار", false);
+        sync.setOnClickListener(view -> {
+            Intent intent = new Intent(this, LoginActivity.class);
+            intent.putExtra("resync", true);
+            startActivityForResult(intent, RESYNC_CATALOG);
+        });
+        LinearLayout.LayoutParams syncParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+        );
+        syncParams.setMargins(0, dp(10), 0, dp(7));
+        section.addView(sync, syncParams);
+
+        TextView logout = button("تسجيل الخروج من TechPro", false);
+        logout.setTextColor(0xFFB42318);
+        logout.setOnClickListener(view -> new AlertDialog.Builder(this)
+                .setTitle("تسجيل الخروج؟")
+                .setMessage("سيتم حذف جلسة الحساب ودليل الأصناف والاقتران من شاشة العميل فقط.")
+                .setPositiveButton("تسجيل الخروج", (dialog, which) -> {
+                    new TechProSession(this).clear();
+                    ProductCatalog localCatalog = new ProductCatalog(this);
+                    localCatalog.clearCatalog();
+                    localCatalog.close();
+                    getSharedPreferences("pair", 0).edit().clear().apply();
+                    Intent intent = new Intent(this, LoginActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                })
+                .setNegativeButton("إلغاء", null)
+                .show());
+        section.addView(logout, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+        ));
     }
 
     private void addConnectionSection(LinearLayout root) {
@@ -539,13 +643,19 @@ public final class SettingsActivity extends Activity {
         }
         preferences.edit()
                 .putInt("template", selectedTemplate)
+                .putString("theme", themeGroup != null && themeGroup.getCheckedRadioButtonId() == 101
+                        ? "dark" : "light")
+                .putInt("orientation", orientationGroup == null ? 0
+                        : orientationGroup.getCheckedRadioButtonId() == 201 ? 1
+                        : orientationGroup.getCheckedRadioButtonId() == 202 ? 2 : 0)
                 .putString("color", colorValue)
                 .putString("welcome", welcome.getText().toString().trim())
                 .putString("thanks", thanks.getText().toString().trim())
                 .putString("footer", footer.getText().toString().trim())
-                .putBoolean("able_idle", ableIdle != null && ableIdle.isEnabled()
-                        ? ableIdle.isChecked()
-                        : preferences.getBoolean("able_idle", false))
+                .putInt("able_mode", ableGroup == null ? 0
+                        : ableGroup.getCheckedRadioButtonId() == 301 ? 1
+                        : ableGroup.getCheckedRadioButtonId() == 302 ? 2 : 0)
+                .remove("able_idle")
                 .apply();
         setResult(RESULT_OK);
         finish();
@@ -553,6 +663,12 @@ public final class SettingsActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == RESYNC_CATALOG) {
+            if (resultCode == RESULT_OK) {
+                Toast.makeText(this, "تم تحديث دليل الأصناف", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         if (requestCode != PICK_LOGO || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;

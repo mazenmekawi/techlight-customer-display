@@ -5,6 +5,10 @@ import java.util.List;
 
 public final class OrderState {
     public static final class Item {
+        public long itemId;
+        public long unitId;
+        public String barcode="";
+        public String itemCode="";
         public String name=""; public double qty=1; public double unitPrice=0;
         public double lineTotal=Double.NaN;
         public double total(){ return Double.isNaN(lineTotal) ? qty * unitPrice : lineTotal; }

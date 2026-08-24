@@ -2,6 +2,8 @@ package sa.techlight.customerdisplay;
 
 import org.junit.Test;
 
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -172,5 +174,36 @@ public final class TechProProtocolTest {
         assertEquals(2.0, order.items.get(0).qty, 0.0001);
         assertEquals(8.70, order.items.get(0).total(), 0.0001);
         assertEquals(10.00, order.total, 0.0001);
+    }
+
+    @Test public void keepsIdentityOnlyCustomerDisplayLinesForCatalogResolution() {
+        OrderState order = TechProClient.parseOrderMessage(
+                "{\"type\":\"fullSnapshot\",\"payload\":{\"items\":[{"
+                        + "\"itemId\":91,\"unitId\":4,\"qty\":2,\"lineTotal\":30}],\"total\":30}}"
+        );
+        assertNotNull(order);
+        assertEquals(1, order.items.size());
+        assertEquals(91, order.items.get(0).itemId);
+        assertEquals(4, order.items.get(0).unitId);
+        assertEquals("", order.items.get(0).name);
+        assertEquals(30, order.items.get(0).total(), 0.0001);
+    }
+
+    @Test public void parsesTechProPagedCatalogWithNestedUnits() {
+        String response = "{\"data\":{\"items\":[{\"id\":91,"
+                + "\"nameAr\":\"آيس لاتيه\",\"nameEn\":\"Iced Latte\","
+                + "\"itemCode\":\"LAT-91\",\"units\":[{\"id\":4,\"itemId\":91,"
+                + "\"displayNameAr\":\"كوب\",\"unitBarcode\":\"62800091\","
+                + "\"salePrice\":15.0}]}]}}";
+
+        List<ProductCatalog.Product> products = TechProAccountClient.parseCatalog(response);
+        ProductCatalog.Product unit = null;
+        for (ProductCatalog.Product product : products) {
+            if (product.itemId == 91 && product.unitId == 4) unit = product;
+        }
+        assertNotNull(unit);
+        assertEquals("آيس لاتيه", unit.nameAr);
+        assertEquals("62800091", unit.barcode);
+        assertEquals(15.0, unit.price, 0.0001);
     }
 }

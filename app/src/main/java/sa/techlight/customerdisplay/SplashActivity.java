@@ -84,7 +84,11 @@ public final class SplashActivity extends Activity {
         subtitle.animate().alpha(0.88f).setStartDelay(650).setDuration(420).start();
 
         handler.postDelayed(() -> {
-            startActivity(new Intent(this, MainActivity.class));
+            TechProSession session = new TechProSession(this);
+            ProductCatalog catalog = new ProductCatalog(this);
+            boolean ready = session.isSignedIn() && catalog.count() > 0;
+            catalog.close();
+            startActivity(new Intent(this, ready ? MainActivity.class : LoginActivity.class));
             finish();
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         }, 2200);

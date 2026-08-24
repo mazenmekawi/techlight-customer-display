@@ -247,6 +247,14 @@ public final class TechProClient {
 
     private static OrderState.Item itemFromObject(JSONObject source) {
         OrderState.Item item = new OrderState.Item();
+        item.itemId = firstLongDeep(source, 0,
+                "itemId", "productId", "item_id", "product_id", "id");
+        item.unitId = firstLongDeep(source, 0,
+                "unitId", "selectedUnitId", "defaultUnitId", "unit_id");
+        item.barcode = firstTextDeep(source,
+                "barcode", "unitBarcode", "itemBarcode", "productBarcode", "item_barcode");
+        item.itemCode = firstTextDeep(source,
+                "itemCode", "code", "itemNo", "productCode", "item_code");
         item.name = firstTextDeep(
                 source,
                 "itemName", "name", "productName", "displayNameAr", "itemNameAr",
@@ -261,10 +269,14 @@ public final class TechProClient {
         boolean hasLineTotal = hasAnyKeyDeep(source,
                 "lineTotal", "total", "amount", "totalAfterDiscountInclVat", "rowTotal",
                 "line_total", "row_total");
-        if ((item.name == null || item.name.trim().isEmpty()) && !hasQuantity && !hasPrice && !hasLineTotal) {
+        boolean hasIdentity = item.itemId > 0
+                || (item.barcode != null && !item.barcode.trim().isEmpty())
+                || (item.itemCode != null && !item.itemCode.trim().isEmpty());
+        if ((item.name == null || item.name.trim().isEmpty())
+                && !hasIdentity && !hasQuantity && !hasPrice && !hasLineTotal) {
             return null;
         }
-        if (item.name == null || item.name.trim().isEmpty()) item.name = "صنف";
+        if (item.name == null) item.name = "";
         item.qty = firstDoubleDeep(source, 1,
                 "quantity", "qty", "count", "itemQuantity", "amountQty", "item_qty", "item_quantity");
         item.unitPrice = firstDoubleDeep(
@@ -478,7 +490,8 @@ public final class TechProClient {
                 "item_name", "product_name", "name_ar", "name_en") != null
                 || hasAnyKey(object,
                 "qty", "quantity", "unitPrice", "lineTotal", "salePrice",
-                "item_qty", "unit_price", "line_total", "sale_price");
+                "item_qty", "unit_price", "line_total", "sale_price",
+                "itemId", "productId", "item_id", "product_id", "barcode", "itemCode");
     }
 
     private static boolean hasAnyKey(JSONObject object, String... keys) {
@@ -581,6 +594,12 @@ public final class TechProClient {
             if (!Double.isNaN(value)) return value;
         }
         return fallback;
+    }
+
+    private static long firstLongDeep(JSONObject object, long fallback, String... keys) {
+        double value = firstDoubleDeep(object, Double.NaN, keys);
+        if (Double.isNaN(value) || value <= 0) return fallback;
+        return (long) value;
     }
 
     private static boolean firstBoolean(JSONObject object, boolean fallback, String... keys) {
