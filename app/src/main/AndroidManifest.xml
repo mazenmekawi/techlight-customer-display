@@ -24,6 +24,10 @@
 
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:screenOrientation="fullSensor" />
+        <activity
             android:name=".QrCaptureActivity"
             android:exported="false"
             android:screenOrientation="fullSensor"

@@ -2,12 +2,14 @@ package sa.techlight.customerdisplay;
 
 import android.Manifest;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -51,8 +53,10 @@ import org.json.JSONArray;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class MainActivity extends Activity implements TechProClient.Listener {
     private static final int CAMERA_REQ = 501;
@@ -70,8 +74,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private TextView statusDot;
     private TextView settingsPill;
     private TextView itemCount;
+    private TextView unitCount;
     private LinearLayout statusChip;
     private TechProClient client;
+    private ProductCatalog catalog;
+    private TechProSession session;
     private AbleSignController able;
     private SharedPreferences ui;
     private SharedPreferences diagnostics;
@@ -79,10 +86,19 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private int accent = Color.rgb(91, 42, 134);
     private boolean compact;
     private boolean paired;
+    private boolean dark;
+    private int pageColor;
+    private int surfaceColor;
+    private int softColor;
+    private int borderColor;
+    private int primaryTextColor;
+    private int secondaryTextColor;
+    private double renderedTotal;
+    private final Set<String> renderedItemKeys = new HashSet<>();
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
-        if (able == null || !ui.getBoolean("able_idle", false)) return;
+        if (able == null || ui.getInt("able_mode", 0) == 0) return;
         if (!able.openPlayer()) showToast("AbleSign غير مثبت على الجهاز");
     };
 
@@ -93,15 +109,34 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         getWindow().getDecorView().setSystemUiVisibility(5894);
         able = new AbleSignController(this);
         ui = getSharedPreferences("ui", 0);
+        applyOrientationPreference();
+        session = new TechProSession(this);
+        catalog = new ProductCatalog(this);
+        if (!session.isSignedIn() || catalog.count() <= 0) {
+            startActivity(new Intent(this, LoginActivity.class));
+            finish();
+            return;
+        }
         if (!ui.getBoolean("v6_idle_migration", false)) {
             ui.edit()
                     .putBoolean("able_idle", false)
+                    .putInt("able_mode", 0)
                     .putBoolean("v6_idle_migration", true)
                     .apply();
         }
         diagnostics = getSharedPreferences("diagnostics", 0);
         buildUi();
         restoreOrPair();
+    }
+
+    private void applyOrientationPreference() {
+        int orientation = ui.getInt("orientation", 0);
+        int requested = orientation == 1
+                ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                : orientation == 2
+                ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
+        if (getRequestedOrientation() != requested) setRequestedOrientation(requested);
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
@@ -156,7 +191,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         if (icon != null) icon.mutate().setTint(primary ? Color.WHITE : accent);
         button.setBackground(primary
                 ? pressable(accent, accent, 18, 0x33FFFFFF)
-                : pressable(Color.WHITE, 0xFFE2DDE7, 18, 0x185B2A86));
+                : pressable(surfaceColor, borderColor, 18, 0x185B2A86));
         button.setClickable(true);
         button.setFocusable(true);
         button.setElevation(dp(2));
@@ -174,13 +209,20 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         } catch (Exception ignored) {
             accent = Color.rgb(91, 42, 134);
         }
+        dark = "dark".equals(ui.getString("theme", "light"));
+        pageColor = dark ? 0xFF0D1117 : 0xFFF6F7F9;
+        surfaceColor = dark ? 0xFF171C24 : Color.WHITE;
+        softColor = dark ? 0xFF222936 : 0xFFF1F3F4;
+        borderColor = dark ? 0xFF303846 : 0xFFE0E3E7;
+        primaryTextColor = dark ? 0xFFF3F5F7 : 0xFF242128;
+        secondaryTextColor = dark ? 0xFFAEB7C4 : 0xFF747078;
 
         shell = new FrameLayout(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setPadding(dp(compact ? 14 : 26), dp(compact ? 12 : 18), dp(compact ? 14 : 26), dp(12));
-        root.setBackgroundColor(0xFFF8F9FA);
+        root.setBackgroundColor(pageColor);
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
@@ -197,19 +239,19 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             LinearLayout brandText = new LinearLayout(this);
             brandText.setOrientation(LinearLayout.VERTICAL);
             brandText.setPadding(dp(9), 0, 0, 0);
-            TextView company = text("ضوء التقنية", compact ? 16 : 19, 0xFF222127);
+            TextView company = text("ضوء التقنية", compact ? 16 : 19, primaryTextColor);
             company.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             company.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             brandText.addView(company);
             if (!compact) {
-                TextView product = text("شاشة العميل الذكية", 12, 0xFF85818B);
+                TextView product = text("شاشة العميل الذكية", 12, secondaryTextColor);
                 product.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
                 brandText.addView(product);
             }
             brand.addView(brandText);
             top.addView(brand, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         } else {
-            TextView screenName = text("شاشة الطلب", compact ? 13 : 15, 0xFF7C7680);
+            TextView screenName = text("شاشة الطلب", compact ? 13 : 15, secondaryTextColor);
             screenName.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             top.addView(screenName, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         }
@@ -218,18 +260,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         statusChip.setOrientation(LinearLayout.HORIZONTAL);
         statusChip.setGravity(Gravity.CENTER);
         statusChip.setPadding(dp(compact ? 10 : 14), dp(7), dp(compact ? 10 : 14), dp(7));
-        statusChip.setBackground(round(0xFFF1F3F4, 20));
+        statusChip.setBackground(round(softColor, 20));
         statusDot = text("●", 12, accent);
         statusDot.setPadding(0, 0, dp(5), 0);
         statusChip.addView(statusDot);
-        status = text("جاهز", compact ? 12 : 13, 0xFF514C58);
+        status = text("جاهز", compact ? 12 : 13, secondaryTextColor);
         status.setGravity(Gravity.CENTER);
         status.setPadding(0, 0, 0, 0);
         statusChip.addView(status);
         top.addView(statusChip);
         root.addView(top);
 
-        title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 29, 0xFF242128);
+        title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 29, primaryTextColor);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
         title.setPadding(dp(8), dp(2), dp(8), dp(compact ? 5 : 8));
@@ -242,7 +284,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         ));
         buildTemplate();
 
-        TextView footer = text(ui.getString("footer", "نسعد بخدمتكم دائمًا"), compact ? 11 : 13, 0xFF8A858F);
+        TextView footer = text(ui.getString("footer", "نسعد بخدمتكم دائمًا"), compact ? 11 : 13, secondaryTextColor);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(dp(8), dp(7), dp(8), 0);
         root.addView(footer);
@@ -265,7 +307,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         settingsPill.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_settings, 0, 0, 0);
         Drawable settingsIcon = settingsPill.getCompoundDrawablesRelative()[0];
         if (settingsIcon != null) settingsIcon.mutate().setTint(accent);
-        settingsPill.setBackground(pressable(Color.WHITE, 0xFFE0DAE5, 20, 0x185B2A86));
+        settingsPill.setBackground(pressable(surfaceColor, borderColor, 20, 0x185B2A86));
         settingsPill.setElevation(dp(10));
         settingsPill.setVisibility(View.GONE);
         settingsPill.setOnClickListener(view -> {
@@ -323,17 +365,17 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout orderCard = new LinearLayout(this);
         orderCard.setOrientation(LinearLayout.VERTICAL);
         orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 12 : 18), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
-        orderCard.setBackground(strokeBg(Color.WHITE, 0xFFE0E3E7, 28));
-        orderCard.setElevation(dp(1));
+        orderCard.setBackground(strokeBg(surfaceColor, borderColor, 28));
+        orderCard.setElevation(dp(dark ? 0 : 2));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView orderLabel = text("تفاصيل الطلب", compact ? 16 : 18, 0xFF353039);
+        TextView orderLabel = text("طلبك الآن", compact ? 16 : 19, primaryTextColor);
         orderLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        itemCount = text("0 صنف", 12, 0xFF615A67);
+        itemCount = text("الأصناف  0", 12, secondaryTextColor);
         itemCount.setGravity(Gravity.CENTER);
-        itemCount.setBackground(round(0xFFF1F3F4, 18));
+        itemCount.setBackground(round(softColor, 18));
         itemCount.setPadding(dp(11), dp(5), dp(11), dp(5));
         LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -341,6 +383,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         );
         countParams.setMargins(0, 0, dp(7), 0);
         header.addView(itemCount, countParams);
+        unitCount = text("القطع  0", 12, secondaryTextColor);
+        unitCount.setGravity(Gravity.CENTER);
+        unitCount.setBackground(round(softColor, 18));
+        unitCount.setPadding(dp(11), dp(5), dp(11), dp(5));
+        LinearLayout.LayoutParams unitParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        unitParams.setMargins(0, 0, dp(7), 0);
+        header.addView(unitCount, unitParams);
         TextView liveBadge = text("مباشر", 12, accent);
         liveBadge.setGravity(Gravity.CENTER);
         liveBadge.setBackground(round(lighten(accent, 0.91f), 18));
@@ -349,7 +401,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         orderCard.addView(header);
 
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFF0EDF2);
+        divider.setBackgroundColor(borderColor);
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
         );
@@ -372,14 +424,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         summary.setPadding(dp(compact ? 18 : 26), dp(compact ? 16 : 26), dp(compact ? 18 : 26), dp(compact ? 16 : 26));
         GradientDrawable summaryBg = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{lighten(accent, 0.90f), 0xFFFFFFFF}
+                dark
+                        ? new int[]{mix(accent, 0xFF141A22, 0.72f), 0xFF171C24}
+                        : new int[]{lighten(accent, 0.90f), 0xFFFFFFFF}
         );
         summaryBg.setCornerRadius(dp(28));
         summary.setBackground(summaryBg);
         summary.setElevation(dp(1));
 
         addCustomerLogo(summary);
-        TextView totalLabel = text("إجمالي طلبك", compact ? 15 : 17, 0xFF605968);
+        TextView totalLabel = text("الإجمالي المستحق", compact ? 15 : 17, secondaryTextColor);
         totalLabel.setGravity(Gravity.CENTER);
         summary.addView(totalLabel);
         total = text("0.00 ر.س", compact ? 32 : 45, accent);
@@ -387,13 +441,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         total.setGravity(Gravity.CENTER);
         total.setPadding(0, dp(3), 0, dp(6));
         summary.addView(total);
-        TextView safe = text("يُحدَّث تلقائيًا من نقطة البيع", compact ? 11 : 13, 0xFF6F6A74);
+        TextView safe = text("يتحدث لحظيًا مع نقطة البيع", compact ? 11 : 13, secondaryTextColor);
         safe.setGravity(Gravity.CENTER);
         summary.addView(safe);
 
         if (compact) {
             body.setOrientation(LinearLayout.VERTICAL);
-            if (template == 2) {
+            if (template == 1) {
                 LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
                 );
@@ -412,19 +466,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
                 ));
             }
-        } else if (template == 1) {
-            body.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
-            );
-            orderParams.setMargins(0, 0, 0, dp(12));
-            body.addView(orderCard, orderParams);
-            body.addView(summary, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
-            ));
         } else {
             body.setOrientation(LinearLayout.HORIZONTAL);
-            if (template == 2) {
+            if (template == 1) {
                 LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
                 summaryParams.setMargins(0, 0, dp(12), 0);
                 body.addView(summary, summaryParams);
@@ -458,7 +502,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         store.setImageResource(R.drawable.ic_store);
         store.setImageTintList(ColorStateList.valueOf(accent));
         store.setPadding(dp(13), dp(13), dp(13), dp(13));
-        store.setBackground(round(lighten(accent, 0.86f), 22));
+        store.setBackground(round(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.86f), 22));
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(compact ? 54 : 66), dp(compact ? 54 : 66));
         markParams.setMargins(0, 0, 0, dp(8));
         summary.addView(store, markParams);
@@ -474,9 +518,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         return Color.rgb(Math.min(255, red), Math.min(255, green), Math.min(255, blue));
     }
 
+    private int mix(int first, int second, float secondWeight) {
+        float weight = Math.max(0f, Math.min(1f, secondWeight));
+        int red = (int) (Color.red(first) * (1f - weight) + Color.red(second) * weight);
+        int green = (int) (Color.green(first) * (1f - weight) + Color.green(second) * weight);
+        int blue = (int) (Color.blue(first) * (1f - weight) + Color.blue(second) * weight);
+        return Color.rgb(red, green, blue);
+    }
+
     private void showEmptyOrder(String heading, String subheading) {
         if (orderList == null) return;
-        if (itemCount != null) itemCount.setText("0 صنف • 0 قطعة");
+        if (itemCount != null) itemCount.setText("الأصناف  0");
+        if (unitCount != null) unitCount.setText("القطع  0");
         orderList.removeAllViews();
         LinearLayout empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
@@ -486,14 +539,14 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         icon.setImageResource(R.drawable.ic_order);
         icon.setImageTintList(ColorStateList.valueOf(accent));
         icon.setPadding(dp(10), dp(10), dp(10), dp(10));
-        icon.setBackground(round(lighten(accent, 0.90f), 20));
+        icon.setBackground(round(dark ? mix(accent, surfaceColor, 0.78f) : lighten(accent, 0.90f), 20));
         empty.addView(icon, new LinearLayout.LayoutParams(dp(compact ? 52 : 64), dp(compact ? 52 : 64)));
-        TextView emptyTitle = text(heading, compact ? 18 : 22, 0xFF38323B);
+        TextView emptyTitle = text(heading, compact ? 18 : 22, primaryTextColor);
         emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         emptyTitle.setGravity(Gravity.CENTER);
         emptyTitle.setPadding(dp(8), dp(8), dp(8), dp(3));
         empty.addView(emptyTitle);
-        TextView emptySub = text(subheading, compact ? 12 : 14, 0xFF8B858F);
+        TextView emptySub = text(subheading, compact ? 12 : 14, secondaryTextColor);
         emptySub.setGravity(Gravity.CENTER);
         empty.addView(emptySub);
         orderList.addView(empty, new LinearLayout.LayoutParams(
@@ -544,23 +597,23 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
         card.setPadding(dp(compact ? 20 : 40), dp(compact ? 18 : 28), dp(compact ? 20 : 40), dp(compact ? 18 : 28));
-        card.setBackground(strokeBg(Color.WHITE, 0xFFE7E1EB, 28));
+        card.setBackground(strokeBg(surfaceColor, borderColor, 28));
         card.setElevation(dp(3));
 
         ImageView scanIcon = new ImageView(this);
         scanIcon.setImageResource(R.drawable.ic_scan_qr);
         scanIcon.setImageTintList(ColorStateList.valueOf(accent));
         scanIcon.setPadding(dp(15), dp(15), dp(15), dp(15));
-        scanIcon.setBackground(round(lighten(accent, 0.88f), 24));
+        scanIcon.setBackground(round(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.88f), 24));
         card.addView(scanIcon, new LinearLayout.LayoutParams(dp(compact ? 72 : 90), dp(compact ? 72 : 90)));
         animatePairingIcon(scanIcon);
 
-        TextView heading = text("اربط شاشة العميل", compact ? 22 : 27, 0xFF302B33);
+        TextView heading = text("اربط شاشة العميل", compact ? 22 : 27, primaryTextColor);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         heading.setGravity(Gravity.CENTER);
         heading.setPadding(dp(8), dp(10), dp(8), dp(2));
         card.addView(heading);
-        TextView detail = text("افتح QR شاشة العميل في Tech Pro، ثم وجّه كاميرا هذا الجهاز إليه.", compact ? 13 : 15, 0xFF77717C);
+        TextView detail = text("افتح QR شاشة العميل في Tech Pro، ثم وجّه كاميرا هذا الجهاز إليه.", compact ? 13 : 15, secondaryTextColor);
         detail.setGravity(Gravity.CENTER);
         detail.setPadding(dp(16), dp(2), dp(16), dp(15));
         card.addView(detail);
@@ -578,7 +631,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         galleryParams.setMargins(0, dp(8), 0, 0);
         card.addView(gallery, galleryParams);
 
-        TextView alternative = text("أو استخدم الربط اليدوي", 12, 0xFF9A949E);
+        TextView alternative = text("أو استخدم الربط اليدوي", 12, secondaryTextColor);
         alternative.setGravity(Gravity.CENTER);
         alternative.setPadding(dp(8), dp(6), dp(8), dp(6));
         card.addView(alternative);
@@ -741,6 +794,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             return;
         }
         if (request == SETTINGS_REQ) {
+            applyOrientationPreference();
             buildUi();
             restoreOrPair();
         }
@@ -822,10 +876,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private void setConnectionState(String value, boolean ok) {
         if (status == null || statusDot == null) return;
         status.setText(value);
-        status.setTextColor(ok ? 0xFF176B46 : 0xFF5F6368);
+        status.setTextColor(ok ? (dark ? 0xFF6ED5A8 : 0xFF176B46) : secondaryTextColor);
         statusDot.setTextColor(ok ? 0xFF188038 : accent);
         if (statusChip != null) {
-            statusChip.setBackground(round(ok ? 0xFFE6F4EA : 0xFFF1F3F4, 20));
+            statusChip.setBackground(round(ok ? (dark ? 0xFF17372B : 0xFFE6F4EA) : softColor, 20));
         }
     }
 
@@ -873,7 +927,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     @Override public void onOrder(OrderState order) {
-        writeDiagnostic("ORDER_RENDERED", "items=" + order.items.size() + " — total=" + order.total);
+        int resolved = catalog == null ? 0 : catalog.enrich(order);
+        writeDiagnostic("ORDER_RENDERED", "items=" + order.items.size()
+                + " — catalogResolved=" + resolved + " — total=" + order.total);
         runOnUiThread(() -> {
             if (!paired) return;
             bringCustomerDisplayForward();
@@ -886,7 +942,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 for (OrderState.Item item : order.items) units += item.qty;
             }
             if (itemCount != null) {
-                itemCount.setText(rows + " صنف • " + formatQuantity(units) + " قطعة");
+                itemCount.setText("الأصناف  " + rows);
+                itemCount.setScaleX(0.94f);
+                itemCount.setScaleY(0.94f);
+                itemCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+            }
+            if (unitCount != null) {
+                unitCount.setText("القطع  " + formatQuantity(units));
+                unitCount.setScaleX(0.94f);
+                unitCount.setScaleY(0.94f);
+                unitCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
             }
             if (empty) {
                 if (order.total > 0.0001) {
@@ -895,22 +960,50 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
                 }
                 setConnectionState("متصل", true);
-                scheduleIdle(30000);
+                if (ui.getInt("able_mode", 0) == 2) scheduleIdle(30000);
             } else {
                 addOrderColumns();
-                for (OrderState.Item item : order.items) addOrderRow(item);
+                Set<String> currentKeys = new HashSet<>();
+                for (int index = 0; index < order.items.size(); index++) {
+                    OrderState.Item item = order.items.get(index);
+                    String key = itemKey(item);
+                    currentKeys.add(key);
+                    addOrderRow(item, index, !renderedItemKeys.contains(key));
+                }
+                renderedItemKeys.clear();
+                renderedItemKeys.addAll(currentKeys);
             }
-            total.setText(String.format(Locale.US, "%.2f ر.س", order.total));
-            total.setScaleX(0.93f);
-            total.setScaleY(0.93f);
-            total.animate().scaleX(1f).scaleY(1f).setDuration(190).start();
+            animateTotal(order.total);
             if (order.completed) {
                 setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
-                scheduleIdle(7000);
+                if (ui.getInt("able_mode", 0) > 0) scheduleIdle(7000);
             } else if (!empty) {
                 setConnectionState("الطلب مباشر", true);
             }
         });
+    }
+
+    private String itemKey(OrderState.Item item) {
+        if (item.itemId > 0) return item.itemId + ":" + item.unitId;
+        if (item.barcode != null && !item.barcode.trim().isEmpty()) return "b:" + item.barcode.trim();
+        return "n:" + String.valueOf(item.name).trim().toLowerCase(Locale.US);
+    }
+
+    private void animateTotal(double target) {
+        if (total == null) return;
+        ValueAnimator animator = ValueAnimator.ofFloat((float) renderedTotal, (float) target);
+        animator.setDuration(360);
+        animator.setInterpolator(new DecelerateInterpolator());
+        animator.addUpdateListener(value -> total.setText(String.format(
+                Locale.US,
+                "%.2f ر.س",
+                ((Float) value.getAnimatedValue()).doubleValue()
+        )));
+        animator.start();
+        total.setScaleX(0.92f);
+        total.setScaleY(0.92f);
+        total.animate().scaleX(1f).scaleY(1f).setDuration(300).start();
+        renderedTotal = target;
     }
 
     private void bringCustomerDisplayForward() {
@@ -936,23 +1029,29 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 .apply();
     }
 
-    private void addOrderRow(OrderState.Item item) {
+    private void addOrderRow(OrderState.Item item, int index, boolean newlyAdded) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(compact ? 10 : 14), dp(compact ? 8 : 11), dp(compact ? 10 : 14), dp(compact ? 8 : 11));
-        row.setBackground(strokeBg(Color.WHITE, 0xFFE8EAED, 16));
+        row.setBackground(strokeBg(
+                newlyAdded
+                        ? (dark ? mix(accent, surfaceColor, 0.80f) : lighten(accent, 0.96f))
+                        : surfaceColor,
+                newlyAdded ? mix(accent, borderColor, 0.45f) : borderColor,
+                18
+        ));
 
         TextView qty = text(formatQuantity(item.qty) + " ×", compact ? 13 : 15, accent);
         qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         qty.setGravity(Gravity.CENTER);
-        qty.setBackground(round(lighten(accent, 0.92f), 14));
+        qty.setBackground(round(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.92f), 14));
         qty.setPadding(dp(10), dp(6), dp(10), dp(6));
 
         LinearLayout nameBlock = new LinearLayout(this);
         nameBlock.setOrientation(LinearLayout.VERTICAL);
         nameBlock.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = text(item.name, compact ? 16 : 20, 0xFF2D2930);
+        TextView name = text(item.name, compact ? 16 : 20, primaryTextColor);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         name.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         name.setMaxLines(2);
@@ -961,13 +1060,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         TextView unitPrice = text(
                 String.format(Locale.US, "سعر الوحدة  %.2f ر.س", item.unitPrice),
                 compact ? 11 : 13,
-                0xFF747078
+                secondaryTextColor
         );
         unitPrice.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         unitPrice.setPadding(dp(8), 0, dp(8), 0);
         nameBlock.addView(unitPrice);
 
-        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, 0xFF202124);
+        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, primaryTextColor);
         price.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
 
@@ -981,8 +1080,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         rowParams.setMargins(0, dp(4), 0, dp(4));
         orderList.addView(row, rowParams);
         row.setAlpha(0f);
-        row.setTranslationX(dp(20));
-        row.animate().alpha(1f).translationX(0).setDuration(250).start();
+        row.setTranslationX(dp(newlyAdded ? 34 : 18));
+        row.setScaleX(newlyAdded ? 0.975f : 1f);
+        row.setScaleY(newlyAdded ? 0.975f : 1f);
+        row.animate()
+                .alpha(1f)
+                .translationX(0)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setStartDelay(Math.min(240, index * 55L))
+                .setDuration(newlyAdded ? 360 : 250)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
     }
 
     private void addOrderColumns() {
@@ -991,12 +1100,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         columns.setGravity(Gravity.CENTER_VERTICAL);
         columns.setPadding(dp(compact ? 10 : 14), dp(3), dp(compact ? 10 : 14), dp(3));
 
-        TextView totalColumn = text("الإجمالي", compact ? 10 : 12, 0xFF70757A);
+        TextView totalColumn = text("الإجمالي", compact ? 10 : 12, secondaryTextColor);
         totalColumn.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        TextView itemColumn = text("الصنف", compact ? 10 : 12, 0xFF70757A);
+        TextView itemColumn = text("الصنف وسعر الوحدة", compact ? 10 : 12, secondaryTextColor);
         itemColumn.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         itemColumn.setPadding(dp(8), 0, dp(8), 0);
-        TextView quantityColumn = text("الكمية", compact ? 10 : 12, 0xFF70757A);
+        TextView quantityColumn = text("الكمية", compact ? 10 : 12, secondaryTextColor);
         quantityColumn.setGravity(Gravity.CENTER);
 
         columns.addView(totalColumn, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -1020,6 +1129,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override protected void onDestroy() {
         if (client != null) client.stop();
+        if (catalog != null) catalog.close();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
