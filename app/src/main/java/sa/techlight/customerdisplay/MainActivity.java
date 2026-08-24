@@ -26,6 +26,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ImageSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -53,7 +56,6 @@ import org.json.JSONArray;
 
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -101,6 +103,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private boolean dark;
     private boolean orderVisible;
     private boolean ableExternalVisible;
+    private boolean scannerWaitingForPermission;
     private long completionMomentUntil;
     private int pageColor;
     private int surfaceColor;
@@ -122,8 +125,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private final Runnable idleTask = () -> {
         int mode = ui == null ? 0 : ui.getInt("able_mode", 0);
         if (mode == 0 || orderVisible) return;
-        if (mode == 1 && embeddedAble != null) {
-            embeddedAble.show();
+        if (mode == 1) {
+            if (ensureEmbeddedPlayer()) {
+                embeddedAble.show();
+                return;
+            }
+            showToast("تعذّر فتح شاشة المحتوى؛ تحقق من مكوّن عرض الويب في الجهاز");
             return;
         }
         if (mode == 2 && able != null && able.openPlayer()) {
@@ -131,7 +138,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             writeDiagnostic("ABLESIGN_EXTERNAL", "Opened installed AbleSign compatibility player");
             return;
         }
-        showToast("تطبيق AbleSign غير مثبت؛ اختر المشغّل المدمج من الإعدادات");
+        showToast("تطبيق شاشة العرض غير مثبت؛ اختر المشغّل المدمج من الإعدادات");
     };
 
     @Override public void onCreate(Bundle state) {
@@ -369,24 +376,35 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 .putBoolean("able_reset_requested", false)
                 .putBoolean("able_preview_requested", false)
                 .apply();
-        try {
-            embeddedAble = new AbleSignEmbeddedPlayer(this, shell, (message, error) -> {
-                writeDiagnostic(error ? "ABLESIGN_ERROR" : "ABLESIGN_EMBEDDED", message);
-                if (error) showToast(message);
-            });
-            if (resetAble) embeddedAble.resetPairing();
-            if (previewAble) handler.postDelayed(() -> {
-                if (embeddedAble != null && !orderVisible) embeddedAble.show();
-                else showToast("سيظهر كود AbleSign بعد انتهاء الطلب الحالي");
+        if (resetAble || previewAble) {
+            handler.postDelayed(() -> {
+                if (!ensureEmbeddedPlayer()) return;
+                if (resetAble) embeddedAble.resetPairing();
+                if (!orderVisible) embeddedAble.show();
+                else showToast("ستظهر شاشة المحتوى بعد انتهاء الطلب الحالي");
             }, 900);
-        } catch (Throwable error) {
-            embeddedAble = null;
-            writeDiagnostic("ABLESIGN_WEBVIEW_UNAVAILABLE",
-                    error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
         }
         addHiddenSettingsButton();
         setContentView(shell);
         animateEntrance();
+    }
+
+    /** Creates the WebView only when content is about to be shown. */
+    private boolean ensureEmbeddedPlayer() {
+        if (embeddedAble != null) return true;
+        if (shell == null || isFinishing()) return false;
+        try {
+            embeddedAble = new AbleSignEmbeddedPlayer(this, shell, (message, error) -> {
+                writeDiagnostic(error ? "SIGNAGE_ERROR" : "SIGNAGE_EMBEDDED", message);
+                if (error) showToast(message);
+            });
+            return true;
+        } catch (Throwable error) {
+            embeddedAble = null;
+            writeDiagnostic("SIGNAGE_WEBVIEW_UNAVAILABLE",
+                    error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
+            return false;
+        }
     }
 
     private void addHeaderIdentity(LinearLayout top) {
@@ -534,14 +552,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private void buildTemplate() {
         body.removeAllViews();
         int template = ui.getInt("template", 0);
-        boolean googleCards = template == 1;
-
         LinearLayout orderCard = new LinearLayout(this);
         orderCard.setOrientation(LinearLayout.VERTICAL);
         orderCard.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         orderCard.setPadding(dp(compact ? 12 : 22), dp(compact ? 11 : 18), dp(compact ? 12 : 22), dp(compact ? 10 : 16));
-        orderCard.setBackground(strokeBg(dark ? 0xFF17101D : Color.WHITE, borderColor, googleCards ? 28 : 22));
-        orderCard.setElevation(dp(dark ? 0 : 3));
+        orderCard.setBackgroundColor(dark ? 0xFF17101D : Color.WHITE);
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -608,28 +623,37 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         summary.setOrientation(LinearLayout.VERTICAL);
         summary.setGravity(Gravity.CENTER_HORIZONTAL);
         summary.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        summary.setPadding(dp(compact ? 16 : 23), dp(compact ? 13 : 20), dp(compact ? 16 : 23), dp(compact ? 13 : 20));
+        summary.setPadding(0, 0, 0, 0);
         GradientDrawable summaryBg = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 new int[]{lighten(panelColor, dark ? 0.01f : 0.07f), mix(panelColor, 0xFF210432, dark ? 0.56f : 0.32f)}
         );
-        summaryBg.setCornerRadius(dp(googleCards ? 28 : 22));
         summary.setBackground(summaryBg);
-        summary.setElevation(dp(dark ? 0 : 5));
 
-        summary.addView(createCompanyBrand());
+        LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(compact ? 58 : 72)
+        );
+        brandParams.setMargins(dp(compact ? 14 : 20), dp(compact ? 12 : 17),
+                dp(compact ? 14 : 20), 0);
+        summary.addView(createCompanyBrand(), brandParams);
 
         if (showBreakdown) {
             LinearLayout metrics = new LinearLayout(this);
             metrics.setOrientation(LinearLayout.VERTICAL);
             metrics.setPadding(0, dp(compact ? 8 : 14), 0, dp(5));
-            subtotalValue = addSummaryMetric(metrics, "المجموع الفرعي", "0.00 ر.س");
-            taxValue = addSummaryMetric(metrics, "الضريبة", "0.00 ر.س");
-            discountValue = addSummaryMetric(metrics, "الخصم", "0.00 ر.س");
-            summary.addView(metrics, new LinearLayout.LayoutParams(
+            subtotalValue = addSummaryMetric(metrics, "المجموع الفرعي", "0.00");
+            taxValue = addSummaryMetric(metrics, "الضريبة", "0.00");
+            discountValue = addSummaryMetric(metrics, "الخصم", "0.00");
+            subtotalValue.setText(money(0, compact ? 11 : 13, Color.WHITE));
+            taxValue.setText(money(0, compact ? 11 : 13, Color.WHITE));
+            discountValue.setText(money(0, compact ? 11 : 13, Color.WHITE));
+            LinearLayout.LayoutParams metricsParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-            ));
+            );
+            metricsParams.setMargins(dp(compact ? 16 : 23), 0, dp(compact ? 16 : 23), 0);
+            summary.addView(metrics, metricsParams);
         } else {
             subtotalValue = null;
             taxValue = null;
@@ -641,32 +665,44 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
         ));
 
+        LinearLayout totalPanel = new LinearLayout(this);
+        totalPanel.setOrientation(LinearLayout.VERTICAL);
+        totalPanel.setGravity(Gravity.CENTER);
+        totalPanel.setPadding(dp(8), dp(compact ? 9 : 12), dp(8), dp(compact ? 10 : 14));
+        totalPanel.setBackgroundColor(0x18FFFFFF);
+
         View summaryDivider = new View(this);
         summaryDivider.setBackgroundColor(0x35FFFFFF);
-        LinearLayout.LayoutParams summaryDividerParams = new LinearLayout.LayoutParams(
+        totalPanel.addView(summaryDivider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
-        );
-        summaryDividerParams.setMargins(0, dp(5), 0, dp(9));
-        summary.addView(summaryDivider, summaryDividerParams);
+        ));
 
         TextView totalLabel = text("الإجمالي", compact ? 12 : 15, 0xFFEEDFF7);
         totalLabel.setGravity(Gravity.CENTER);
         totalLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        totalLabel.setPadding(0, 0, 0, dp(2));
-        summary.addView(totalLabel);
-        total = text("0.00 ر.س", compact ? 30 : 42, Color.WHITE);
+        totalLabel.setPadding(0, dp(compact ? 7 : 9), 0, dp(2));
+        totalPanel.addView(totalLabel);
+        total = text("0.00", compact ? 30 : 42, Color.WHITE);
         total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         total.setGravity(Gravity.CENTER);
         total.setPadding(dp(8), 0, dp(8), 0);
-        summary.addView(total);
+        total.setText(money(0, compact ? 25 : 34, Color.WHITE));
+        totalPanel.addView(total);
         TextView live = text("●  تحديث لحظي من Tech Pro", compact ? 9 : 11, 0xFFDCC8E8);
         live.setGravity(Gravity.CENTER);
         live.setPadding(0, dp(4), 0, 0);
-        summary.addView(live);
+        totalPanel.addView(live);
+        summary.addView(totalPanel, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         LinearLayout dashboard = new LinearLayout(this);
         dashboard.setGravity(Gravity.CENTER);
         dashboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        dashboard.setBackground(strokeBg(dark ? 0xFF17101D : Color.WHITE, borderColor, 24));
+        dashboard.setClipToOutline(true);
+        dashboard.setElevation(dp(dark ? 0 : 4));
         if (portrait) {
             dashboard.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
@@ -677,11 +713,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     dp(showBreakdown ? (compact ? 218 : 244) : (compact ? 138 : 158))
             );
             if (template == 2) {
-                summaryParams.setMargins(0, 0, 0, dp(googleCards ? 12 : 7));
                 dashboard.addView(summary, summaryParams);
                 dashboard.addView(orderCard, orderParams);
             } else {
-                orderParams.setMargins(0, 0, 0, dp(googleCards ? 12 : 7));
                 dashboard.addView(orderCard, orderParams);
                 dashboard.addView(summary, summaryParams);
             }
@@ -693,13 +727,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 0.92f : 1.05f
             );
-            int gap = dp(googleCards ? 13 : 6);
             if (template == 2) {
-                summaryParams.setMargins(0, 0, gap, 0);
                 dashboard.addView(summary, summaryParams);
                 dashboard.addView(orderCard, orderParams);
             } else {
-                orderParams.setMargins(0, 0, gap, 0);
                 dashboard.addView(orderCard, orderParams);
                 dashboard.addView(summary, summaryParams);
             }
@@ -713,41 +744,25 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private View createCompanyBrand() {
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.HORIZONTAL);
-        brand.setGravity(Gravity.CENTER);
-        brand.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        ImageView brand = new ImageView(this);
+        brand.setImageResource(R.drawable.techlight_brand_transparent);
+        brand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         brand.setPadding(dp(10), dp(7), dp(10), dp(7));
-        brand.setBackground(round(0x20FFFFFF, 16));
+        brand.setBackground(round(Color.WHITE, 14));
+        brand.setClipToOutline(true);
 
-        ImageView mark = new ImageView(this);
-        mark.setImageResource(R.drawable.ic_techlight);
-        mark.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        mark.setBackground(round(Color.WHITE, 11));
-        mark.setClipToOutline(true);
-        brand.addView(mark, new LinearLayout.LayoutParams(dp(compact ? 34 : 42), dp(compact ? 34 : 42)));
-
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(9), 0, 0, 0);
-        TextView english = text("TECHLIGHT", compact ? 12 : 15, Color.WHITE);
-        english.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        english.setLetterSpacing(0.08f);
-        english.setGravity(Gravity.LEFT);
-        english.setPadding(0, 0, 0, 0);
-        copy.addView(english);
-        TextView arabic = text("ضوء التقنية", compact ? 11 : 13, 0xFFEADDF3);
-        arabic.setGravity(Gravity.LEFT);
-        arabic.setPadding(0, 0, 0, 0);
-        copy.addView(arabic);
-        brand.addView(copy);
-
-        ObjectAnimator shine = ObjectAnimator.ofFloat(mark, View.ALPHA, 0.78f, 1f);
+        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.72f, 1f);
         shine.setDuration(1900);
         shine.setRepeatMode(ValueAnimator.REVERSE);
         shine.setRepeatCount(ValueAnimator.INFINITE);
         shine.start();
         decorativeAnimators.add(shine);
+        ObjectAnimator glow = ObjectAnimator.ofFloat(brand, View.SCALE_X, 0.985f, 1.015f);
+        glow.setDuration(1900);
+        glow.setRepeatMode(ValueAnimator.REVERSE);
+        glow.setRepeatCount(ValueAnimator.INFINITE);
+        glow.start();
+        decorativeAnimators.add(glow);
         return brand;
     }
 
@@ -830,10 +845,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         message.setPadding(dp(8), 0, dp(8), dp(3));
         empty.addView(message);
 
-        TechLightMascotView mascot = new TechLightMascotView(this);
-        mascot.configure(accent, cooking);
-        int mascotSize = dp(compact ? 105 : 142);
-        empty.addView(mascot, new LinearLayout.LayoutParams(mascotSize, mascotSize));
+        LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(
+                dp(compact ? 220 : 300), dp(compact ? 58 : 80)
+        );
+        brandParams.setMargins(0, dp(compact ? 6 : 10), 0, dp(compact ? 5 : 8));
+        empty.addView(createCompanyBrand(), brandParams);
 
         TextView emptyTitle = text(heading, compact ? 14 : 18, accent);
         emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -911,7 +927,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         detail.setPadding(dp(16), dp(2), dp(16), dp(15));
         card.addView(detail);
 
-        TextView liveScan = action("مسح QR بالكاميرا", R.drawable.ic_scan_qr, true);
+        TextView liveScan = action("مسح QR أو الباركود بالكاميرا", R.drawable.ic_scan_qr, true);
         liveScan.setOnClickListener(view -> prepareLiveScanner());
         card.addView(liveScan, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
 
@@ -942,6 +958,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void prepareLiveScanner() {
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            scannerWaitingForPermission = true;
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQ);
             return;
         }
@@ -949,12 +966,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     }
 
     private void launchScanner() {
+        scannerWaitingForPermission = false;
         try {
             IntentIntegrator integrator = new IntentIntegrator(this);
             integrator.setCaptureActivity(QrCaptureActivity.class);
-            integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
-            integrator.setPrompt("وجّه الكاميرا إلى QR الاقتران في Tech Pro");
-            integrator.setBeepEnabled(true);
+            integrator.setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES);
+            integrator.setPrompt("وجّه الكاميرا إلى رمز الاقتران في Tech Pro");
+            integrator.setBeepEnabled(false);
             integrator.setBarcodeImageEnabled(false);
             integrator.setOrientationLocked(false);
             integrator.setTimeout(300000);
@@ -963,8 +981,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         } catch (Exception error) {
             writeDiagnostic("CAMERA_FAILED", error.getClass().getSimpleName() + ": " + error.getMessage());
             new AlertDialog.Builder(this)
-                    .setTitle("تعذّر فتح ماسح QR")
-                    .setMessage("تعذّر تشغيل الكاميرا المباشرة. اختر صورة QR محفوظة أو أدخل IP والمنفذ.")
+                    .setTitle("تعذّر فتح الماسح")
+                    .setMessage("تعذّر تشغيل الكاميرا المباشرة. اختر صورة الرمز المحفوظة أو أدخل IP والمنفذ.")
                     .setPositiveButton("اختيار صورة", (dialog, which) -> launchQrImagePicker())
                     .setNegativeButton("إدخال يدوي", (dialog, which) -> manualPair())
                     .show();
@@ -988,14 +1006,15 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != CAMERA_REQ) return;
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            scannerWaitingForPermission = false;
             launchScanner();
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("صلاحية الكاميرا مطلوبة")
-                .setMessage("فعّل صلاحية الكاميرا حتى يستطيع التطبيق مسح QR.")
+                .setMessage("فعّل صلاحية الكاميرا حتى يستطيع التطبيق مسح رمز الاقتران.")
                 .setPositiveButton("فتح إعدادات التطبيق", (dialog, which) -> openAppSettings())
-                .setNegativeButton("إلغاء", null)
+                .setNegativeButton("اختيار صورة", (dialog, which) -> launchQrImagePicker())
                 .show();
     }
 
@@ -1119,7 +1138,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
             RGBLuminanceSource source = new RGBLuminanceSource(width, height, pixels);
             Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
-            hints.put(DecodeHintType.POSSIBLE_FORMATS, Collections.singletonList(BarcodeFormat.QR_CODE));
+            List<BarcodeFormat> formats = new ArrayList<>();
+            formats.add(BarcodeFormat.QR_CODE);
+            formats.add(BarcodeFormat.DATA_MATRIX);
+            formats.add(BarcodeFormat.AZTEC);
+            formats.add(BarcodeFormat.CODE_128);
+            hints.put(DecodeHintType.POSSIBLE_FORMATS, formats);
             hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
 
             MultiFormatReader reader = new MultiFormatReader();
@@ -1187,7 +1211,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override public void onConnected() {
         runOnUiThread(() -> {
-            setConnectionState("متصل — بانتظار البيانات", true);
+            setConnectionState("جاهز — بانتظار الطلب", true);
             showEmptyOrder("تم فتح اتصال Tech Pro", "بانتظار أول fullSnapshot من شاشة الكاشير");
             if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
         });
@@ -1277,11 +1301,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                         if (order.total > 0.0001) {
                             showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
                         } else {
-                            showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
+                            showEmptyOrder("جاهز لاستقبال الطلب", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
                         }
                         if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
                     }
-                    setConnectionState("متصل", true);
+                    setConnectionState("جاهز", true);
                 } else {
                     renderOrderRows(order);
                 }
@@ -1355,15 +1379,30 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
         double tax = order.taxIncluded ? order.tax : 0;
         double discount = order.discountIncluded ? Math.abs(order.discount) : 0;
-        if (subtotalValue != null) subtotalValue.setText(money(subtotal));
-        if (taxValue != null) taxValue.setText(money(tax));
+        if (subtotalValue != null) subtotalValue.setText(money(subtotal, compact ? 11 : 13, Color.WHITE));
+        if (taxValue != null) taxValue.setText(money(tax, compact ? 11 : 13, Color.WHITE));
         if (discountValue != null) {
-            discountValue.setText(discount > 0.0001 ? "− " + money(discount) : money(0));
+            SpannableStringBuilder discountText = new SpannableStringBuilder();
+            if (discount > 0.0001) discountText.append("− ");
+            discountText.append(money(discount, compact ? 11 : 13, Color.WHITE));
+            discountValue.setText(discountText);
         }
     }
 
-    private String money(double value) {
-        return String.format(Locale.US, "%.2f ر.س", value);
+    private CharSequence money(double value, int symbolSizeDp, int symbolColor) {
+        SpannableStringBuilder result = new SpannableStringBuilder(
+                String.format(Locale.US, "%.2f ", value)
+        );
+        int symbolStart = result.length();
+        result.append('\uFFFC');
+        Drawable symbol = getDrawable(R.drawable.ic_saudi_riyal).mutate();
+        symbol.setTint(symbolColor);
+        int height = dp(symbolSizeDp);
+        int width = Math.max(dp(8), Math.round(height * 0.895f));
+        symbol.setBounds(0, 0, width, height);
+        result.setSpan(new ImageSpan(symbol, ImageSpan.ALIGN_BASELINE), symbolStart,
+                symbolStart + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return result;
     }
 
     private void animateTotal(double target) {
@@ -1372,10 +1411,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         totalAnimator = ValueAnimator.ofFloat((float) renderedTotal, (float) target);
         totalAnimator.setDuration(360);
         totalAnimator.setInterpolator(new DecelerateInterpolator());
-        totalAnimator.addUpdateListener(value -> total.setText(String.format(
-                Locale.US,
-                "%.2f ر.س",
-                ((Float) value.getAnimatedValue()).doubleValue()
+        totalAnimator.addUpdateListener(value -> total.setText(money(
+                ((Float) value.getAnimatedValue()).doubleValue(),
+                compact ? 25 : 34,
+                Color.WHITE
         )));
         totalAnimator.start();
         total.animate().cancel();
@@ -1404,6 +1443,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         FrameLayout imageFrame;
         ImageView image;
         String imagePath = "";
+        double lastQuantity = Double.NaN;
+        double lastTotal = Double.NaN;
+        ValueAnimator highlightAnimator;
     }
 
     private void renderOrderRows(OrderState order) {
@@ -1478,7 +1520,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(tight ? 70 : 92));
+        row.setMinimumHeight(dp(tight ? 78 : 102));
         row.setPadding(dp(tight ? 9 : 14), dp(tight ? 6 : 10), dp(tight ? 9 : 14), dp(tight ? 6 : 10));
 
         RowHolder holder = new RowHolder();
@@ -1524,7 +1566,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
-        int imageSize = dp(tight ? 52 : 72);
+        int imageSize = dp(tight ? 60 : 82);
         LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(imageSize, imageSize);
         imageParams.setMargins(dp(4), 0, dp(4), 0);
         product.addView(imageFrame, imageParams);
@@ -1548,17 +1590,31 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         int normalFill = rowStyle == 1
                 ? surfaceColor
                 : (index % 2 == 0 ? (dark ? 0xFF1E1625 : 0xFFF9F6FB) : surfaceColor);
+        int normalStroke = rowStyle == 1 ? lighten(accent, 0.84f) : borderColor;
+        int radius = rowStyle == 1 ? 9 : 19;
+        if (holder.highlightAnimator != null) {
+            holder.highlightAnimator.cancel();
+            holder.highlightAnimator = null;
+        }
         view.setBackground(strokeBg(
                 newlyAdded
                         ? (dark ? mix(accent, surfaceColor, 0.70f) : lighten(accent, 0.93f))
                         : normalFill,
-                newlyAdded ? mix(accent, borderColor, 0.30f) : (rowStyle == 1 ? lighten(accent, 0.84f) : borderColor),
-                rowStyle == 1 ? 9 : 19
+                newlyAdded ? mix(accent, borderColor, 0.30f) : normalStroke,
+                radius
         ));
+        boolean quantityChanged = !Double.isNaN(holder.lastQuantity)
+                && Math.abs(holder.lastQuantity - item.qty) > 0.00001;
+        boolean totalChanged = !Double.isNaN(holder.lastTotal)
+                && Math.abs(holder.lastTotal - item.total()) > 0.00001;
         holder.quantity.setText(formatQuantity(item.qty) + " ×");
         holder.name.setText(item.name == null || item.name.trim().isEmpty() ? "صنف" : item.name.trim());
-        holder.unitPrice.setText(String.format(Locale.US, "سعر الوحدة  %.2f ر.س", item.unitPrice));
-        holder.lineTotal.setText(String.format(Locale.US, "%.2f ر.س", item.total()));
+        SpannableStringBuilder unitPriceText = new SpannableStringBuilder("سعر الوحدة  ");
+        unitPriceText.append(money(item.unitPrice, compact || denseRows ? 9 : 12, secondaryTextColor));
+        holder.unitPrice.setText(unitPriceText);
+        holder.lineTotal.setText(money(item.total(), compact || denseRows ? 13 : 18, accent));
+        holder.lastQuantity = item.qty;
+        holder.lastTotal = item.total();
 
         String imagePath = showProductImages ? ProductCatalog.clean(item.imagePath) : "";
         if (imagePath.isEmpty() || imageLoader == null) {
@@ -1572,22 +1628,24 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 if (!imagePath.equals(holder.imagePath)) return;
                 holder.imageFrame.setVisibility(View.VISIBLE);
                 holder.imageFrame.setAlpha(0f);
-                holder.imageFrame.setTranslationY(-dp(10));
-                holder.imageFrame.setScaleX(0.88f);
-                holder.imageFrame.setScaleY(0.88f);
+                holder.imageFrame.setTranslationY(-dp(16));
+                holder.imageFrame.setScaleX(0.78f);
+                holder.imageFrame.setScaleY(0.78f);
+                holder.imageFrame.setRotation(-4f);
                 holder.imageFrame.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f)
-                        .setDuration(360).setInterpolator(new DecelerateInterpolator()).start();
+                        .rotation(0f).setDuration(480)
+                        .setInterpolator(new DecelerateInterpolator()).start();
             });
         }
 
         if (newlyAdded) {
             view.animate().cancel();
             view.setAlpha(0f);
-            view.setTranslationY(-dp(44));
-            view.setTranslationX(dp(18));
-            view.setRotationX(7f);
-            view.setScaleX(0.95f);
-            view.setScaleY(0.95f);
+            view.setTranslationY(-dp(62));
+            view.setTranslationX(dp(24));
+            view.setRotationX(10f);
+            view.setScaleX(0.90f);
+            view.setScaleY(0.90f);
             view.animate()
                     .alpha(1f)
                     .translationY(0)
@@ -1595,14 +1653,31 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     .rotationX(0)
                     .scaleX(1f)
                     .scaleY(1f)
-                    .setDuration(480)
+                    .setDuration(620)
                     .setInterpolator(new DecelerateInterpolator())
                     .start();
             animateCounter(holder.quantity, true);
             animateCounter(holder.lineTotal, false);
+            int highlightFill = dark ? mix(accent, surfaceColor, 0.70f) : lighten(accent, 0.93f);
+            int highlightStroke = mix(accent, borderColor, 0.30f);
+            holder.highlightAnimator = ValueAnimator.ofFloat(0f, 1f);
+            holder.highlightAnimator.setStartDelay(170);
+            holder.highlightAnimator.setDuration(820);
+            holder.highlightAnimator.setInterpolator(new DecelerateInterpolator());
+            holder.highlightAnimator.addUpdateListener(animation -> {
+                float progress = (Float) animation.getAnimatedValue();
+                view.setBackground(strokeBg(
+                        mix(highlightFill, normalFill, progress),
+                        mix(highlightStroke, normalStroke, progress),
+                        radius
+                ));
+            });
+            holder.highlightAnimator.start();
         } else {
             view.animate().cancel();
             view.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f).setDuration(180).start();
+            if (quantityChanged) animateCounter(holder.quantity, true);
+            if (totalChanged) animateCounter(holder.lineTotal, false);
         }
     }
 
@@ -1649,6 +1724,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         super.onResume();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(5894);
+        if (scannerWaitingForPermission
+                && Build.VERSION.SDK_INT >= 23
+                && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            handler.postDelayed(this::launchScanner, 180);
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {

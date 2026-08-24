@@ -14,8 +14,8 @@
     <application
         android:allowBackup="false"
         android:label="شاشة عميل ضوء التقنية"
-        android:icon="@drawable/ic_techlight"
-        android:roundIcon="@drawable/ic_techlight"
+        android:icon="@drawable/techlight_mark"
+        android:roundIcon="@drawable/techlight_mark"
         android:banner="@drawable/tv_banner"
         android:theme="@style/AppTheme"
         android:resizeableActivity="true"
@@ -30,16 +30,21 @@
         <activity
             android:name=".QrCaptureActivity"
             android:exported="false"
+            android:hardwareAccelerated="true"
+            android:stateNotNeeded="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="fullSensor"
             android:theme="@style/zxing_CaptureTheme" />
         <activity
             android:name=".MainActivity"
             android:alwaysRetainTaskState="true"
             android:exported="false"
+            android:screenOrientation="fullSensor"
             android:launchMode="singleTask" />
         <activity
             android:name=".SplashActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="fullSensor">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
