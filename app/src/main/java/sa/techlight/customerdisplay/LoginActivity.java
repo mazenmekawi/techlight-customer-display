@@ -28,6 +28,7 @@ public final class LoginActivity extends Activity {
     private TechProAccountClient accountClient;
     private TechProSession session;
     private ProductCatalog catalog;
+    private EditText posCode;
     private EditText userName;
     private EditText password;
     private TextView action;
@@ -117,9 +118,15 @@ public final class LoginActivity extends Activity {
         detail.setPadding(dp(6), 0, dp(6), dp(18));
         card.addView(detail);
 
+        posCode = input("كود النقطة", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        posCode.setText(session.posCode());
+        card.addView(posCode, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+
         userName = input("اسم المستخدم", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
         userName.setText(session.userName());
-        card.addView(userName, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
+        LinearLayout.LayoutParams userParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
+        userParams.setMargins(0, dp(10), 0, 0);
+        card.addView(userName, userParams);
 
         password = input("كلمة المرور", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         LinearLayout.LayoutParams passwordParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
@@ -209,8 +216,13 @@ public final class LoginActivity extends Activity {
 
     private void submit() {
         if (busy) return;
+        String point = posCode.getText().toString().trim();
         String user = userName.getText().toString().trim();
         String pass = password.getText().toString();
+        if (point.isEmpty()) {
+            posCode.setError("اكتب كود النقطة");
+            return;
+        }
         if (user.isEmpty()) {
             userName.setError("اكتب اسم المستخدم");
             return;
@@ -220,11 +232,11 @@ public final class LoginActivity extends Activity {
             return;
         }
         setBusy(true, "جاري تسجيل الدخول إلى TechPro…");
-        accountClient.login(user, pass, new TechProAccountClient.LoginListener() {
+        accountClient.login(point, user, pass, new TechProAccountClient.LoginListener() {
             @Override public void onSuccess(String token, String accountName) {
                 password.setText("");
                 try {
-                    session.save(token, user, accountName);
+                    session.save(token, point, user, accountName);
                 } catch (Exception error) {
                     showError("تعذّر حفظ جلسة TechPro بأمان على الجهاز");
                     return;
@@ -280,6 +292,7 @@ public final class LoginActivity extends Activity {
             action.setEnabled(!value);
             action.setAlpha(value ? 0.55f : 1f);
         }
+        if (posCode != null) posCode.setEnabled(!value);
         if (userName != null) userName.setEnabled(!value);
         if (password != null) password.setEnabled(!value);
         if (progress != null) progress.setVisibility(value ? View.VISIBLE : View.GONE);

@@ -53,12 +53,10 @@ public final class TechProAccountClient {
             .retryOnConnectionFailure(true)
             .build();
 
-    public void login(String userName, String password, LoginListener listener) {
-        JSONObject payload = new JSONObject();
+    public void login(String posCode, String userName, String password, LoginListener listener) {
+        JSONObject payload;
         try {
-            // These names match TechPro's UserLoginModel in the original APK.
-            payload.put("UserName", userName == null ? "" : userName.trim());
-            payload.put("Password", password == null ? "" : password);
+            payload = buildLoginPayload(posCode, userName, password);
         } catch (Exception impossible) {
             failLogin(listener, "تعذّر تجهيز بيانات تسجيل الدخول");
             return;
@@ -101,6 +99,15 @@ public final class TechProAccountClient {
                 }
             }
         });
+    }
+
+    /** Matches LoginModel.toJson in the original TechPro app. */
+    static JSONObject buildLoginPayload(String posCode, String userName, String password) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("posCode", posCode == null ? "" : posCode.trim());
+        payload.put("username", userName == null ? "" : userName.trim());
+        payload.put("password", password == null ? "" : password);
+        return payload;
     }
 
     public void syncCatalog(String token, SyncListener listener) {

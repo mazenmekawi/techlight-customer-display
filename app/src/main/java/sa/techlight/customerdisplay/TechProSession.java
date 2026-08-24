@@ -26,7 +26,7 @@ public final class TechProSession {
         preferences = context.getSharedPreferences(STORE, Context.MODE_PRIVATE);
     }
 
-    public synchronized void save(String token, String userName, String accountName) throws Exception {
+    public synchronized void save(String token, String posCode, String userName, String accountName) throws Exception {
         if (token == null || token.trim().isEmpty()) throw new IllegalArgumentException("Missing token");
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
@@ -34,6 +34,7 @@ public final class TechProSession {
         preferences.edit()
                 .putString("token", Base64.encodeToString(encrypted, Base64.NO_WRAP))
                 .putString("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .putString("pos_code", posCode == null ? "" : posCode.trim())
                 .putString("username", userName == null ? "" : userName.trim())
                 .putString("account_name", accountName == null ? "" : accountName.trim())
                 .putLong("login_at", System.currentTimeMillis())
@@ -62,6 +63,10 @@ public final class TechProSession {
 
     public boolean isSignedIn() {
         return token() != null;
+    }
+
+    public String posCode() {
+        return preferences.getString("pos_code", "");
     }
 
     public String userName() {
