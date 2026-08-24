@@ -1,10 +1,13 @@
 package sa.techlight.customerdisplay;
 
 import android.Manifest;
+import android.animation.LayoutTransition;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -26,6 +29,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.DecelerateInterpolator;
@@ -53,6 +57,7 @@ import java.io.InputStream;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -67,6 +72,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private LinearLayout root;
     private LinearLayout orderList;
     private LinearLayout body;
+    private ScrollView orderScroll;
     private TextView status;
     private TextView total;
     private TextView title;
@@ -79,13 +85,18 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private ProductCatalog catalog;
     private TechProSession session;
     private AbleSignController able;
+    private AbleSignEmbeddedPlayer embeddedAble;
+    private ProductImageLoader imageLoader;
     private SharedPreferences ui;
     private SharedPreferences diagnostics;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private int accent = Color.rgb(91, 42, 134);
+    private int accent = Color.rgb(77, 14, 129);
     private boolean compact;
+    private boolean portrait;
     private boolean paired;
     private boolean dark;
+    private boolean orderVisible;
+    private boolean ableExternalVisible;
     private int pageColor;
     private int surfaceColor;
     private int softColor;
@@ -94,15 +105,30 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private int secondaryTextColor;
     private double renderedTotal;
     private final Set<String> renderedItemKeys = new HashSet<>();
+    private final Map<String, View> renderedRows = new LinkedHashMap<>();
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
-        if (able == null || ui.getInt("able_mode", 0) == 0) return;
-        if (!able.openPlayer()) showToast("AbleSign غير مثبت على الجهاز");
+        int mode = ui == null ? 0 : ui.getInt("able_mode", 0);
+        if (mode == 0 || orderVisible) return;
+        AbleSignSession embeddedSession = new AbleSignSession(this);
+        if (mode == 1 && embeddedSession.isConfigured() && embeddedAble != null) {
+            embeddedAble.show(embeddedSession);
+            return;
+        }
+        if (able != null && able.openPlayer()) {
+            ableExternalVisible = true;
+            writeDiagnostic("ABLESIGN_EXTERNAL", "Opened installed AbleSign compatibility player");
+            return;
+        }
+        showToast(mode == 1
+                ? "أكمل API Key ورقم شاشة AbleSign من الإعدادات"
+                : "AbleSign غير مثبت على الجهاز");
     };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setSystemUiVisibility(5894);
@@ -110,6 +136,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         ui = getSharedPreferences("ui", 0);
         applyOrientationPreference();
         session = new TechProSession(this);
+        imageLoader = new ProductImageLoader(this, session.token());
         catalog = new ProductCatalog(this);
         if (!session.isSignedIn() || catalog.count() <= 0) {
             startActivity(new Intent(this, LoginActivity.class));
@@ -126,6 +153,38 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         diagnostics = getSharedPreferences("diagnostics", 0);
         buildUi();
         restoreOrPair();
+        refreshCatalogForImages();
+    }
+
+    private void refreshCatalogForImages() {
+        long now = System.currentTimeMillis();
+        long previousAttempt = ui.getLong("v14_image_sync_attempt", 0);
+        if (now - previousAttempt < 12L * 60L * 60L * 1000L) return;
+        String token = session == null ? null : session.token();
+        if (token == null || token.trim().isEmpty()) return;
+        ui.edit().putLong("v14_image_sync_attempt", now).apply();
+        TechProAccountClient account = new TechProAccountClient();
+        account.syncCatalog(token, new TechProAccountClient.SyncListener() {
+            @Override public void onProgress(String message, int productsFound) {
+                writeDiagnostic("IMAGE_CATALOG_SYNC", message + " — " + productsFound);
+            }
+
+            @Override public void onSuccess(java.util.List<ProductCatalog.Product> products) {
+                try {
+                    int count = catalog == null ? 0 : catalog.replaceAll(products);
+                    writeDiagnostic("IMAGE_CATALOG_READY", "records=" + count);
+                } catch (Exception error) {
+                    writeDiagnostic("IMAGE_CATALOG_FAILED", String.valueOf(error.getMessage()));
+                } finally {
+                    account.shutdown();
+                }
+            }
+
+            @Override public void onFailure(String message, boolean unauthorized) {
+                writeDiagnostic("IMAGE_CATALOG_FAILED", message);
+                account.shutdown();
+            }
+        });
     }
 
     private void applyOrientationPreference() {
@@ -199,68 +258,56 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void buildUi() {
         handler.removeCallbacks(hideSettingsTask);
+        if (embeddedAble != null) {
+            embeddedAble.shutdown();
+            embeddedAble = null;
+        }
+        renderedRows.clear();
+        renderedItemKeys.clear();
         paired = getSharedPreferences("pair", 0).contains("ip");
         int widthDp = getResources().getConfiguration().screenWidthDp;
         int heightDp = getResources().getConfiguration().screenHeightDp;
-        compact = widthDp < 700 || heightDp > widthDp;
+        portrait = heightDp > widthDp;
+        compact = widthDp < 700 || portrait;
         try {
-            accent = Color.parseColor(ui.getString("color", "#5B2A86"));
+            accent = Color.parseColor(ui.getString("color", "#4D0E81"));
         } catch (Exception ignored) {
-            accent = Color.rgb(91, 42, 134);
+            accent = Color.rgb(77, 14, 129);
         }
         dark = "dark".equals(ui.getString("theme", "light"));
-        pageColor = dark ? 0xFF0D1117 : 0xFFF6F7F9;
-        surfaceColor = dark ? 0xFF171C24 : Color.WHITE;
-        softColor = dark ? 0xFF222936 : 0xFFF1F3F4;
-        borderColor = dark ? 0xFF303846 : 0xFFE0E3E7;
-        primaryTextColor = dark ? 0xFFF3F5F7 : 0xFF242128;
-        secondaryTextColor = dark ? 0xFFAEB7C4 : 0xFF747078;
+        pageColor = dark ? 0xFF0C0711 : 0xFFF7F4FA;
+        surfaceColor = dark ? 0xFF17101D : Color.WHITE;
+        softColor = dark ? 0xFF261A30 : 0xFFF4EEF8;
+        borderColor = dark ? 0xFF3A2947 : 0xFFE8DFEE;
+        primaryTextColor = dark ? 0xFFF8F4FA : 0xFF26212B;
+        secondaryTextColor = dark ? 0xFFC0B4C8 : 0xFF6D6573;
 
         shell = new FrameLayout(this);
+        GradientDrawable backdrop = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{pageColor, dark ? mix(accent, pageColor, 0.84f) : lighten(accent, 0.965f)}
+        );
+        shell.setBackground(backdrop);
+        addAmbientMotion(shell);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        root.setPadding(dp(compact ? 14 : 26), dp(compact ? 12 : 18), dp(compact ? 14 : 26), dp(12));
-        root.setBackgroundColor(pageColor);
+        root.setPadding(dp(compact ? 13 : 25), dp(compact ? 10 : 17), dp(compact ? 13 : 25), dp(compact ? 9 : 13));
+        root.setBackgroundColor(Color.TRANSPARENT);
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(4), 0, dp(4), dp(8));
-
-        if (!paired) {
-            LinearLayout brand = new LinearLayout(this);
-            brand.setOrientation(LinearLayout.HORIZONTAL);
-            brand.setGravity(Gravity.CENTER_VERTICAL);
-            ImageView techIcon = new ImageView(this);
-            techIcon.setImageResource(R.drawable.ic_techlight);
-            brand.addView(techIcon, new LinearLayout.LayoutParams(dp(compact ? 38 : 46), dp(compact ? 38 : 46)));
-            LinearLayout brandText = new LinearLayout(this);
-            brandText.setOrientation(LinearLayout.VERTICAL);
-            brandText.setPadding(dp(9), 0, 0, 0);
-            TextView company = text("ضوء التقنية", compact ? 16 : 19, primaryTextColor);
-            company.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            company.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            brandText.addView(company);
-            if (!compact) {
-                TextView product = text("شاشة العميل الذكية", 12, secondaryTextColor);
-                product.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-                brandText.addView(product);
-            }
-            brand.addView(brandText);
-            top.addView(brand, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        } else {
-            TextView screenName = text("شاشة الطلب", compact ? 13 : 15, secondaryTextColor);
-            screenName.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            top.addView(screenName, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        }
+        top.setPadding(dp(2), 0, dp(2), dp(compact ? 7 : 11));
+        addHeaderIdentity(top);
 
         statusChip = new LinearLayout(this);
         statusChip.setOrientation(LinearLayout.HORIZONTAL);
         statusChip.setGravity(Gravity.CENTER);
-        statusChip.setPadding(dp(compact ? 10 : 14), dp(7), dp(compact ? 10 : 14), dp(7));
-        statusChip.setBackground(round(softColor, 20));
-        statusDot = text("●", 12, accent);
+        statusChip.setPadding(dp(compact ? 10 : 14), dp(compact ? 6 : 8), dp(compact ? 10 : 14), dp(compact ? 6 : 8));
+        statusChip.setBackground(strokeBg(dark ? 0xAA17101D : 0xEFFFFFFF, borderColor, 22));
+        statusChip.setElevation(dp(dark ? 0 : 1));
+        statusDot = text("●", 11, accent);
         statusDot.setPadding(0, 0, dp(5), 0);
         statusChip.addView(statusDot);
         status = text("جاهز", compact ? 12 : 13, secondaryTextColor);
@@ -270,10 +317,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         top.addView(statusChip);
         root.addView(top);
 
-        title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 29, primaryTextColor);
+        title = text(ui.getString("welcome", "أهلًا وسهلًا بك"), compact ? 23 : 31, primaryTextColor);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
-        title.setPadding(dp(8), dp(2), dp(8), dp(compact ? 5 : 8));
+        title.setLetterSpacing(-0.015f);
+        title.setPadding(dp(6), dp(1), dp(6), dp(compact ? 5 : 9));
         root.addView(title);
 
         body = new LinearLayout(this);
@@ -283,18 +331,102 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         ));
         buildTemplate();
 
-        TextView footer = text(ui.getString("footer", "نسعد بخدمتكم دائمًا"), compact ? 11 : 13, secondaryTextColor);
+        TextView footer = text(ui.getString("footer", "نسعد بخدمتكم دائمًا"), compact ? 10 : 12, secondaryTextColor);
         footer.setGravity(Gravity.CENTER);
-        footer.setPadding(dp(8), dp(7), dp(8), 0);
+        footer.setPadding(dp(8), dp(compact ? 5 : 8), dp(8), 0);
         root.addView(footer);
 
         shell.addView(root, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+        embeddedAble = new AbleSignEmbeddedPlayer(this, shell, (message, error) -> {
+            writeDiagnostic(error ? "ABLESIGN_ERROR" : "ABLESIGN_EMBEDDED", message);
+            if (error) showToast(message);
+        });
         addHiddenSettingsButton();
         setContentView(shell);
         animateEntrance();
+    }
+
+    private void addHeaderIdentity(LinearLayout top) {
+        LinearLayout identity = new LinearLayout(this);
+        identity.setOrientation(LinearLayout.HORIZONTAL);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView logo = new ImageView(this);
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        logo.setPadding(dp(7), dp(7), dp(7), dp(7));
+        logo.setBackground(strokeBg(surfaceColor, borderColor, 18));
+        logo.setClipToOutline(true);
+        boolean hasLogo = false;
+        String logoUri = ui.getString("logo", null);
+        if (logoUri != null && !logoUri.trim().isEmpty()) {
+            try {
+                logo.setImageURI(Uri.parse(logoUri));
+                hasLogo = logo.getDrawable() != null;
+            } catch (Exception ignored) { }
+        }
+        if (!hasLogo) {
+            logo.setImageResource(R.drawable.ic_store);
+            logo.setImageTintList(ColorStateList.valueOf(accent));
+            logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        }
+        int logoSize = dp(compact ? 46 : 58);
+        identity.addView(logo, new LinearLayout.LayoutParams(logoSize, logoSize));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(10), 0, dp(10), 0);
+        TextView label = text(paired ? "طلبك الآن" : "شاشة العميل", compact ? 15 : 18, primaryTextColor);
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        label.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        label.setPadding(0, 0, 0, 0);
+        copy.addView(label);
+        TextView sub = text(paired ? "يتم التحديث مباشرة من نقطة البيع" : "اربطها مع Tech Pro للبدء",
+                compact ? 10 : 12, secondaryTextColor);
+        sub.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        sub.setPadding(0, 0, 0, 0);
+        copy.addView(sub);
+        identity.addView(copy);
+        top.addView(identity, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+    }
+
+    private void addAmbientMotion(FrameLayout host) {
+        View first = ambientOrb(lighten(accent, dark ? 0.35f : 0.68f), dark ? 0.13f : 0.20f);
+        FrameLayout.LayoutParams firstParams = new FrameLayout.LayoutParams(dp(compact ? 220 : 330), dp(compact ? 220 : 330), Gravity.TOP | Gravity.START);
+        firstParams.setMargins(-dp(70), -dp(90), 0, 0);
+        host.addView(first, firstParams);
+        animateOrb(first, dp(compact ? 28 : 54), dp(compact ? 34 : 62), 10500);
+
+        View second = ambientOrb(0xFF9B59C2, dark ? 0.10f : 0.13f);
+        FrameLayout.LayoutParams secondParams = new FrameLayout.LayoutParams(dp(compact ? 190 : 280), dp(compact ? 190 : 280), Gravity.BOTTOM | Gravity.END);
+        secondParams.setMargins(0, 0, -dp(70), -dp(70));
+        host.addView(second, secondParams);
+        animateOrb(second, -dp(compact ? 26 : 45), -dp(compact ? 34 : 58), 12300);
+    }
+
+    private View ambientOrb(int color, float alpha) {
+        View orb = new View(this);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.OVAL);
+        shape.setColor(color);
+        orb.setBackground(shape);
+        orb.setAlpha(alpha);
+        return orb;
+    }
+
+    private void animateOrb(View view, float x, float y, long duration) {
+        ObjectAnimator horizontal = ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 0f, x);
+        horizontal.setDuration(duration);
+        horizontal.setRepeatMode(ValueAnimator.REVERSE);
+        horizontal.setRepeatCount(ValueAnimator.INFINITE);
+        horizontal.start();
+        ObjectAnimator vertical = ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, 0f, y);
+        vertical.setDuration(duration + 1700);
+        vertical.setRepeatMode(ValueAnimator.REVERSE);
+        vertical.setRepeatCount(ValueAnimator.INFINITE);
+        vertical.start();
     }
 
     private void addHiddenSettingsButton() {
@@ -363,30 +495,32 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         LinearLayout orderCard = new LinearLayout(this);
         orderCard.setOrientation(LinearLayout.VERTICAL);
-        orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 14 : 20), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
-        orderCard.setBackground(strokeBg(surfaceColor, borderColor, 24));
-        orderCard.setElevation(dp(dark ? 0 : 1));
+        orderCard.setPadding(dp(compact ? 12 : 20), dp(compact ? 12 : 17), dp(compact ? 12 : 20), dp(compact ? 10 : 16));
+        orderCard.setBackground(strokeBg(dark ? 0xF217101D : 0xF8FFFFFF, borderColor, 27));
+        orderCard.setElevation(dp(dark ? 0 : 3));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView orderLabel = text("تفاصيل الطلب", compact ? 17 : 20, primaryTextColor);
+        TextView orderLabel = text("تفاصيل الطلب", compact ? 18 : 23, primaryTextColor);
         orderLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        orderLabel.setPadding(dp(4), 0, dp(4), 0);
         header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        itemCount = text("0 صنف", 12, accent);
+        itemCount = text("0 أصناف", compact ? 11 : 13, accent);
         itemCount.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         itemCount.setGravity(Gravity.CENTER);
-        itemCount.setBackground(round(dark ? mix(accent, surfaceColor, 0.76f) : lighten(accent, 0.91f), 18));
-        itemCount.setPadding(dp(11), dp(5), dp(11), dp(5));
+        itemCount.setBackground(strokeBg(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.92f),
+                dark ? mix(accent, borderColor, 0.35f) : lighten(accent, 0.72f), 18));
+        itemCount.setPadding(dp(12), dp(6), dp(12), dp(6));
         LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
         countParams.setMargins(0, 0, dp(7), 0);
         header.addView(itemCount, countParams);
-        unitCount = text("0 قطعة", 12, secondaryTextColor);
+        unitCount = text("0 قطعة", compact ? 11 : 13, secondaryTextColor);
         unitCount.setGravity(Gravity.CENTER);
-        unitCount.setBackground(round(softColor, 18));
-        unitCount.setPadding(dp(11), dp(5), dp(11), dp(5));
+        unitCount.setBackground(strokeBg(softColor, borderColor, 18));
+        unitCount.setPadding(dp(12), dp(6), dp(12), dp(6));
         LinearLayout.LayoutParams unitParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -400,105 +534,98 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)
         );
-        dividerParams.setMargins(0, dp(10), 0, dp(7));
+        dividerParams.setMargins(0, dp(12), 0, dp(4));
         orderCard.addView(divider, dividerParams);
+
+        orderCard.addView(createOrderColumns());
 
         orderList = new LinearLayout(this);
         orderList.setOrientation(LinearLayout.VERTICAL);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);
-        scroll.addView(orderList);
-        orderCard.addView(scroll, new LinearLayout.LayoutParams(
+        orderList.setPadding(0, dp(2), 0, dp(5));
+        LayoutTransition rowsMotion = new LayoutTransition();
+        rowsMotion.setDuration(LayoutTransition.APPEARING, 340);
+        rowsMotion.setDuration(LayoutTransition.CHANGE_APPEARING, 360);
+        rowsMotion.setDuration(LayoutTransition.DISAPPEARING, 220);
+        rowsMotion.enableTransitionType(LayoutTransition.CHANGING);
+        rowsMotion.setAnimateParentHierarchy(false);
+        orderList.setLayoutTransition(rowsMotion);
+        orderScroll = new ScrollView(this);
+        orderScroll.setFillViewport(true);
+        orderScroll.setClipToPadding(false);
+        orderScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        orderScroll.addView(orderList);
+        orderCard.addView(orderScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
         ));
 
         LinearLayout summary = new LinearLayout(this);
-        summary.setOrientation(LinearLayout.VERTICAL);
+        summary.setOrientation(portrait ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         summary.setGravity(Gravity.CENTER);
-        summary.setPadding(dp(compact ? 18 : 26), dp(compact ? 16 : 26), dp(compact ? 18 : 26), dp(compact ? 16 : 26));
+        summary.setPadding(dp(compact ? 17 : 22), dp(compact ? 12 : 19), dp(compact ? 17 : 22), dp(compact ? 12 : 19));
         GradientDrawable summaryBg = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{accent, mix(accent, 0xFF160C20, dark ? 0.68f : 0.46f)}
+                new int[]{lighten(accent, dark ? 0.02f : 0.08f), mix(accent, 0xFF2B073E, dark ? 0.48f : 0.30f)}
         );
-        summaryBg.setCornerRadius(dp(24));
+        summaryBg.setCornerRadius(dp(25));
         summary.setBackground(summaryBg);
-        summary.setElevation(dp(dark ? 0 : 3));
+        summary.setElevation(dp(dark ? 0 : 5));
 
-        addCustomerLogo(summary);
-        TextView totalLabel = text("الإجمالي المستحق", compact ? 15 : 17, 0xFFEDE5F3);
-        totalLabel.setGravity(Gravity.CENTER);
-        summary.addView(totalLabel);
-        total = text("0.00 ر.س", compact ? 34 : 48, Color.WHITE);
+        LinearLayout summaryCopy = new LinearLayout(this);
+        summaryCopy.setOrientation(LinearLayout.VERTICAL);
+        summaryCopy.setGravity(portrait ? Gravity.RIGHT | Gravity.CENTER_VERTICAL : Gravity.CENTER);
+        TextView totalLabel = text("الإجمالي المستحق", compact ? 12 : 15, 0xFFEEDFF7);
+        totalLabel.setGravity(portrait ? Gravity.RIGHT : Gravity.CENTER);
+        totalLabel.setPadding(0, 0, 0, 0);
+        summaryCopy.addView(totalLabel);
+        TextView safe = text("متزامن لحظيًا مع نقطة البيع", compact ? 9 : 11, 0xFFDCC8E8);
+        safe.setGravity(portrait ? Gravity.RIGHT : Gravity.CENTER);
+        safe.setPadding(0, dp(2), 0, 0);
+        summaryCopy.addView(safe);
+
+        total = text("0.00 ر.س", compact ? 31 : 41, Color.WHITE);
         total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         total.setGravity(Gravity.CENTER);
-        total.setPadding(0, dp(3), 0, dp(6));
-        summary.addView(total);
-        TextView safe = text("متزامن لحظيًا مع نقطة البيع", compact ? 11 : 13, 0xFFD9CDE2);
-        safe.setGravity(Gravity.CENTER);
-        summary.addView(safe);
+        total.setPadding(dp(8), 0, dp(8), 0);
+        if (portrait) {
+            summary.addView(summaryCopy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            summary.addView(total, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        } else {
+            summary.addView(summaryCopy);
+            summary.addView(total, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
 
-        if (compact) {
+        if (portrait) {
             body.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
+            );
+            LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(compact ? 104 : 122)
+            );
             if (template == 1) {
-                LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
-                );
                 summaryParams.setMargins(0, 0, 0, dp(10));
                 body.addView(summary, summaryParams);
-                body.addView(orderCard, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
-                ));
+                body.addView(orderCard, orderParams);
             } else {
-                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 2
-                );
                 orderParams.setMargins(0, 0, 0, dp(10));
                 body.addView(orderCard, orderParams);
-                body.addView(summary, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1
-                ));
+                body.addView(summary, summaryParams);
             }
         } else {
             body.setOrientation(LinearLayout.HORIZONTAL);
             if (template == 1) {
-                LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+                LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 0.75f : 0.9f);
                 summaryParams.setMargins(0, 0, dp(12), 0);
                 body.addView(summary, summaryParams);
-                body.addView(orderCard, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
+                body.addView(orderCard, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 2.6f : 3.3f));
             } else {
-                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 3);
+                LinearLayout.LayoutParams orderParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 2.6f : 3.3f);
                 orderParams.setMargins(0, 0, dp(14), 0);
                 body.addView(orderCard, orderParams);
-                body.addView(summary, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2));
+                body.addView(summary, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, compact ? 0.75f : 0.9f));
             }
         }
         showEmptyOrder("بانتظار أول طلب", "سيظهر الطلب هنا مباشرة عند إضافة صنف من الكاشير");
-    }
-
-    private void addCustomerLogo(LinearLayout summary) {
-        String logoUri = ui.getString("logo", null);
-        if (logoUri != null && !logoUri.trim().isEmpty()) {
-            ImageView customerLogo = new ImageView(this);
-            customerLogo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            try {
-                customerLogo.setImageURI(Uri.parse(logoUri));
-                if (customerLogo.getDrawable() != null) {
-                    summary.addView(customerLogo, new LinearLayout.LayoutParams(dp(compact ? 100 : 150), dp(compact ? 62 : 100)));
-                    return;
-                }
-            } catch (Exception ignored) {
-                // A neutral store mark is used below. TechLight branding never leaks into the customer view.
-            }
-        }
-        ImageView store = new ImageView(this);
-        store.setImageResource(R.drawable.ic_store);
-        store.setImageTintList(ColorStateList.valueOf(Color.WHITE));
-        store.setPadding(dp(13), dp(13), dp(13), dp(13));
-        store.setBackground(round(0x24FFFFFF, 22));
-        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(compact ? 54 : 66), dp(compact ? 54 : 66));
-        markParams.setMargins(0, 0, 0, dp(8));
-        summary.addView(store, markParams);
     }
 
     private int lighten(int color, float factor) {
@@ -521,9 +648,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void showEmptyOrder(String heading, String subheading) {
         if (orderList == null) return;
+        orderVisible = false;
         if (itemCount != null) itemCount.setText("0 صنف");
         if (unitCount != null) unitCount.setText("0 قطعة");
         orderList.removeAllViews();
+        renderedRows.clear();
+        renderedItemKeys.clear();
         LinearLayout empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
         empty.setGravity(Gravity.CENTER);
@@ -533,8 +663,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         icon.setImageTintList(ColorStateList.valueOf(accent));
         icon.setPadding(dp(10), dp(10), dp(10), dp(10));
         icon.setBackground(round(dark ? mix(accent, surfaceColor, 0.78f) : lighten(accent, 0.90f), 20));
-        empty.addView(icon, new LinearLayout.LayoutParams(dp(compact ? 52 : 64), dp(compact ? 52 : 64)));
-        TextView emptyTitle = text(heading, compact ? 18 : 22, primaryTextColor);
+        empty.addView(icon, new LinearLayout.LayoutParams(dp(compact ? 54 : 68), dp(compact ? 54 : 68)));
+        TextView emptyTitle = text(heading, compact ? 19 : 24, primaryTextColor);
         emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         emptyTitle.setGravity(Gravity.CENTER);
         emptyTitle.setPadding(dp(8), dp(8), dp(8), dp(3));
@@ -787,9 +917,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
             return;
         }
         if (request == SETTINGS_REQ) {
-            applyOrientationPreference();
-            buildUi();
-            restoreOrPair();
+            if (result == RESULT_OK) {
+                applyOrientationPreference();
+                buildUi();
+                restoreOrPair();
+            }
         }
     }
 
@@ -942,8 +1074,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 paired = true;
                 if (orderList == null) buildUi();
                 handler.removeCallbacks(idleTask);
-                orderList.removeAllViews();
                 boolean empty = order.items == null || order.items.isEmpty();
+                if (!empty) {
+                    orderVisible = true;
+                    hideAdvertisingForOrder();
+                }
                 int rows = empty ? 0 : order.items.size();
                 double units = 0;
                 if (!empty) {
@@ -962,29 +1097,22 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     unitCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
                 }
                 if (empty) {
+                    orderVisible = false;
                     if (order.total > 0.0001) {
                         showEmptyOrder("وصل الإجمالي بدون الأصناف", "Tech Pro أرسل قيمة الفاتورة لكن قائمة الأصناف فارغة؛ انسخ تقرير التشخيص من الإعدادات");
                     } else {
                         showEmptyOrder("متصل وجاهز", "سيظهر أول صنف هنا فور إضافته من Tech Pro");
                     }
                     setConnectionState("متصل", true);
-                    if (ui.getInt("able_mode", 0) == 2) scheduleIdle(30000);
+                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
                 } else {
-                    addOrderColumns();
-                    Set<String> currentKeys = new HashSet<>();
-                    for (int index = 0; index < order.items.size(); index++) {
-                        OrderState.Item item = order.items.get(index);
-                        String key = itemKey(item);
-                        currentKeys.add(key);
-                        addOrderRow(item, index, !renderedItemKeys.contains(key));
-                    }
-                    renderedItemKeys.clear();
-                    renderedItemKeys.addAll(currentKeys);
+                    renderOrderRows(order);
                 }
                 animateTotal(order.total);
                 if (order.completed) {
                     setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
-                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(7000);
+                    orderVisible = false;
+                    if (ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
                 } else if (!empty) {
                     setConnectionState("الطلب مباشر", true);
                 }
@@ -996,6 +1124,24 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 setConnectionState("وصل الطلب — تعذّر العرض", false);
             }
         });
+    }
+
+    private void hideAdvertisingForOrder() {
+        if (embeddedAble != null) embeddedAble.hide();
+        if (!ableExternalVisible) return;
+        ableExternalVisible = false;
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager != null) manager.moveTaskToFront(getTaskId(), ActivityManager.MOVE_TASK_WITH_HOME);
+            Intent intent = new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+            writeDiagnostic("ABLESIGN_RETURN", "Order received; customer display restored");
+        } catch (Exception error) {
+            writeDiagnostic("ABLESIGN_RETURN_FAILED",
+                    error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
+        }
     }
 
     private String itemKey(OrderState.Item item) {
@@ -1030,76 +1176,188 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 .apply();
     }
 
-    private void addOrderRow(OrderState.Item item, int index, boolean newlyAdded) {
+    private static final class RowHolder {
+        TextView quantity;
+        TextView name;
+        TextView unitPrice;
+        TextView lineTotal;
+        FrameLayout imageFrame;
+        ImageView image;
+        String imagePath = "";
+    }
+
+    private void renderOrderRows(OrderState order) {
+        if (orderList == null || order == null || order.items == null) return;
+        Map<String, Integer> occurrences = new LinkedHashMap<>();
+        Map<String, OrderState.Item> incoming = new LinkedHashMap<>();
+        for (int sourceIndex = order.items.size() - 1; sourceIndex >= 0; sourceIndex--) {
+            OrderState.Item item = order.items.get(sourceIndex);
+            String base = itemKey(item);
+            int occurrence = occurrences.containsKey(base) ? occurrences.get(base) + 1 : 0;
+            occurrences.put(base, occurrence);
+            incoming.put(base + "#" + occurrence, item);
+        }
+
+        Set<String> stale = new HashSet<>(renderedRows.keySet());
+        stale.removeAll(incoming.keySet());
+        for (String key : stale) {
+            View row = renderedRows.remove(key);
+            if (row != null) orderList.removeView(row);
+        }
+
+        int targetIndex = 0;
+        boolean hasNewRow = false;
+        for (Map.Entry<String, OrderState.Item> entry : incoming.entrySet()) {
+            String key = entry.getKey();
+            View row = renderedRows.get(key);
+            boolean newlyAdded = row == null;
+            if (newlyAdded) {
+                row = createOrderRow();
+                renderedRows.put(key, row);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+                params.setMargins(0, dp(5), 0, dp(5));
+                orderList.addView(row, Math.min(targetIndex, orderList.getChildCount()), params);
+                hasNewRow = true;
+            } else {
+                int currentIndex = orderList.indexOfChild(row);
+                if (currentIndex != targetIndex && currentIndex >= 0) {
+                    orderList.removeViewAt(currentIndex);
+                    orderList.addView(row, Math.min(targetIndex, orderList.getChildCount()));
+                }
+            }
+            updateOrderRow(row, entry.getValue(), targetIndex, newlyAdded);
+            targetIndex++;
+        }
+        renderedItemKeys.clear();
+        renderedItemKeys.addAll(incoming.keySet());
+        if (hasNewRow && orderScroll != null) orderScroll.smoothScrollTo(0, 0);
+    }
+
+    private View createOrderRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(compact ? 10 : 14), dp(compact ? 8 : 11), dp(compact ? 10 : 14), dp(compact ? 8 : 11));
-        row.setBackground(strokeBg(
-                newlyAdded
-                        ? (dark ? mix(accent, surfaceColor, 0.76f) : lighten(accent, 0.93f))
-                        : (index % 2 == 0 ? softColor : surfaceColor),
-                newlyAdded ? mix(accent, borderColor, 0.35f) : (index % 2 == 0 ? softColor : borderColor),
-                16
-        ));
+        row.setMinimumHeight(dp(compact ? 76 : 94));
+        row.setPadding(dp(compact ? 10 : 14), dp(compact ? 8 : 10), dp(compact ? 10 : 14), dp(compact ? 8 : 10));
 
-        TextView qty = text(formatQuantity(item.qty) + " ×", compact ? 13 : 15, Color.WHITE);
+        RowHolder holder = new RowHolder();
+        TextView qty = text("0 ×", compact ? 13 : 16, Color.WHITE);
         qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         qty.setGravity(Gravity.CENTER);
-        qty.setBackground(round(accent, 14));
-        qty.setPadding(dp(10), dp(6), dp(10), dp(6));
+        qty.setBackground(round(accent, 16));
+        qty.setMinWidth(dp(compact ? 48 : 62));
+        qty.setPadding(dp(9), dp(7), dp(9), dp(7));
+        holder.quantity = qty;
+
+        LinearLayout product = new LinearLayout(this);
+        product.setOrientation(LinearLayout.HORIZONTAL);
+        product.setGravity(Gravity.CENTER_VERTICAL);
+        product.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
 
         LinearLayout nameBlock = new LinearLayout(this);
         nameBlock.setOrientation(LinearLayout.VERTICAL);
         nameBlock.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = text(item.name, compact ? 16 : 20, primaryTextColor);
+        TextView name = text("", compact ? 17 : 22, primaryTextColor);
         name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         name.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         name.setMaxLines(2);
-        name.setPadding(dp(8), 0, dp(8), 0);
+        name.setPadding(dp(9), 0, dp(9), 0);
         nameBlock.addView(name);
-        TextView unitPrice = text(
-                String.format(Locale.US, "سعر الوحدة  %.2f ر.س", item.unitPrice),
-                compact ? 11 : 13,
-                secondaryTextColor
-        );
+        holder.name = name;
+        TextView unitPrice = text("", compact ? 11 : 14, secondaryTextColor);
         unitPrice.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        unitPrice.setPadding(dp(8), 0, dp(8), 0);
+        unitPrice.setPadding(dp(9), dp(2), dp(9), 0);
         nameBlock.addView(unitPrice);
+        holder.unitPrice = unitPrice;
+        product.addView(nameBlock, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, accent);
+        FrameLayout imageFrame = new FrameLayout(this);
+        imageFrame.setBackground(strokeBg(softColor, borderColor, 17));
+        imageFrame.setPadding(dp(2), dp(2), dp(2), dp(2));
+        imageFrame.setVisibility(View.GONE);
+        ImageView productImage = new ImageView(this);
+        productImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        productImage.setBackground(round(softColor, 15));
+        productImage.setClipToOutline(true);
+        imageFrame.addView(productImage, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        int imageSize = dp(compact ? 56 : 72);
+        LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(imageSize, imageSize);
+        imageParams.setMargins(dp(4), 0, dp(4), 0);
+        product.addView(imageFrame, imageParams);
+        holder.imageFrame = imageFrame;
+        holder.image = productImage;
+
+        TextView price = text("", compact ? 16 : 21, accent);
         price.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        holder.lineTotal = price;
 
         row.addView(price, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
-        row.addView(nameBlock, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(product, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         row.addView(qty);
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        rowParams.setMargins(0, dp(4), 0, dp(4));
-        orderList.addView(row, rowParams);
-        row.setAlpha(0f);
-        row.setTranslationX(dp(newlyAdded ? 34 : 18));
-        row.setScaleX(newlyAdded ? 0.975f : 1f);
-        row.setScaleY(newlyAdded ? 0.975f : 1f);
-        row.animate()
-                .alpha(1f)
-                .translationX(0)
-                .scaleX(1f)
-                .scaleY(1f)
-                .setStartDelay(Math.min(240, index * 55L))
-                .setDuration(newlyAdded ? 360 : 250)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        row.setTag(holder);
+        return row;
     }
 
-    private void addOrderColumns() {
+    private void updateOrderRow(View view, OrderState.Item item, int index, boolean newlyAdded) {
+        RowHolder holder = (RowHolder) view.getTag();
+        view.setBackground(strokeBg(
+                newlyAdded
+                        ? (dark ? mix(accent, surfaceColor, 0.70f) : lighten(accent, 0.93f))
+                        : (index % 2 == 0 ? (dark ? 0xFF1E1625 : 0xFFF9F6FB) : surfaceColor),
+                newlyAdded ? mix(accent, borderColor, 0.30f) : borderColor,
+                19
+        ));
+        holder.quantity.setText(formatQuantity(item.qty) + " ×");
+        holder.name.setText(item.name == null || item.name.trim().isEmpty() ? "صنف" : item.name.trim());
+        holder.unitPrice.setText(String.format(Locale.US, "سعر الوحدة  %.2f ر.س", item.unitPrice));
+        holder.lineTotal.setText(String.format(Locale.US, "%.2f ر.س", item.total()));
+
+        String imagePath = ProductCatalog.clean(item.imagePath);
+        if (imagePath.isEmpty()) {
+            holder.imagePath = "";
+            holder.imageFrame.setVisibility(View.GONE);
+            holder.image.setImageDrawable(null);
+        } else if (!imagePath.equals(holder.imagePath)) {
+            holder.imagePath = imagePath;
+            holder.imageFrame.setVisibility(View.GONE);
+            imageLoader.load(imagePath, holder.image, () -> {
+                holder.imageFrame.setVisibility(View.VISIBLE);
+                holder.imageFrame.setAlpha(0f);
+                holder.imageFrame.setTranslationY(-dp(8));
+                holder.imageFrame.animate().alpha(1f).translationY(0).setDuration(300).start();
+            });
+        }
+
+        if (newlyAdded) {
+            view.setAlpha(0f);
+            view.setTranslationY(-dp(30));
+            view.setScaleX(0.97f);
+            view.setScaleY(0.97f);
+            view.animate()
+                    .alpha(1f)
+                    .translationY(0)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(390)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .start();
+        } else {
+            view.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f).setDuration(180).start();
+        }
+    }
+
+    private LinearLayout createOrderColumns() {
         LinearLayout columns = new LinearLayout(this);
         columns.setOrientation(LinearLayout.HORIZONTAL);
         columns.setGravity(Gravity.CENTER_VERTICAL);
-        columns.setPadding(dp(compact ? 10 : 14), dp(3), dp(compact ? 10 : 14), dp(3));
+        columns.setPadding(dp(compact ? 10 : 14), dp(5), dp(compact ? 10 : 14), dp(5));
 
         TextView totalColumn = text("الإجمالي", compact ? 10 : 12, secondaryTextColor);
         totalColumn.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
@@ -1112,7 +1370,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         columns.addView(totalColumn, new LinearLayout.LayoutParams(dp(compact ? 104 : 170), LinearLayout.LayoutParams.WRAP_CONTENT));
         columns.addView(itemColumn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         columns.addView(quantityColumn, new LinearLayout.LayoutParams(dp(compact ? 64 : 82), LinearLayout.LayoutParams.WRAP_CONTENT));
-        orderList.addView(columns);
+        return columns;
     }
 
     private String formatQuantity(double quantity) {
@@ -1128,9 +1386,34 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         handler.postDelayed(idleTask, delayMs);
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().getDecorView().setSystemUiVisibility(5894);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        ableExternalVisible = false;
+    }
+
+    @Override public void onBackPressed() {
+        if (embeddedAble != null && embeddedAble.isVisible()) {
+            embeddedAble.hide();
+            if (!orderVisible && ui.getInt("able_mode", 0) > 0) scheduleIdle(10000);
+            return;
+        }
+        showSettingsButton();
+        Toast.makeText(this, "شاشة العميل تعمل دائمًا — افتح الإعدادات للخروج أو تغيير الربط",
+                Toast.LENGTH_SHORT).show();
+    }
+
     @Override protected void onDestroy() {
         if (client != null) client.stop();
         if (catalog != null) catalog.close();
+        if (imageLoader != null) imageLoader.shutdown();
+        if (embeddedAble != null) embeddedAble.shutdown();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }

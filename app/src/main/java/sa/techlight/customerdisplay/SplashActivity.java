@@ -34,7 +34,7 @@ public final class SplashActivity extends Activity {
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         GradientDrawable background = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.rgb(42, 16, 69), Color.rgb(111, 57, 158)}
+                new int[]{Color.rgb(42, 7, 65), Color.rgb(77, 14, 129), Color.rgb(131, 42, 204)}
         );
         root.setBackground(background);
 

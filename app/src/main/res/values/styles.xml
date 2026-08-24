@@ -2,6 +2,6 @@
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:colorAccent">#5C2D91</item>
+        <item name="android:colorAccent">#4D0E81</item>
     </style>
 </resources>

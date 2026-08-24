@@ -23,7 +23,7 @@ import android.widget.TextView;
 import java.util.List;
 
 public final class LoginActivity extends Activity {
-    private static final int ACCENT = 0xFF5B2A86;
+    private static final int ACCENT = 0xFF4D0E81;
 
     private TechProAccountClient accountClient;
     private TechProSession session;
