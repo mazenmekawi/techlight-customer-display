@@ -3,9 +3,16 @@ package sa.techlight.customerdisplay;
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public final class OrderMomentPolicyTest {
+    @Test public void itemToInvoiceStoryIsExactlyFourSeconds() {
+        assertEquals(4000L, OrderMomentPolicy.COMPLETION_ANIMATION_MS);
+        assertEquals(4000L, OrderMomentPolicy.completionDisplayMs(3000L));
+        assertEquals(10000L, OrderMomentPolicy.completionDisplayMs(10000L));
+    }
+
     @Test public void clearingAnActiveOrderShowsReceiptAndKeepsFinalTotal() {
         boolean event = OrderMomentPolicy.isCompletionEvent(true, true, false, 0);
         assertTrue(event);

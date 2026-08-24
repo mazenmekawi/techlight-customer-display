@@ -519,7 +519,7 @@ public final class SettingsActivity extends Activity {
         LinearLayout section = section(
                 root,
                 "الشاشة الإعلانية والمحتوى",
-                "يختفي فور وصول أول صنف، ويعمل بعد تنفيذ الطلب وفق المؤقت الذي تختاره من 3 إلى 60 ثانية."
+                "يختفي فور وصول أول صنف، ويعمل بعد تنفيذ الطلب وفق المؤقت الذي تختاره من 4 إلى 60 ثانية."
         );
         AbleSignController controller = new AbleSignController(this);
         boolean installed = controller.isInstalled();
@@ -548,15 +548,15 @@ public final class SettingsActivity extends Activity {
         ableDelayValue.setGravity(Gravity.CENTER);
         section.addView(ableDelayValue);
         ableDelay = new SeekBar(this);
-        ableDelay.setMax(57);
-        int savedDelay = Math.max(3, Math.min(60, preferences.getInt("able_delay_seconds", 10)));
-        ableDelay.setProgress(savedDelay - 3);
+        ableDelay.setMax(56);
+        int savedDelay = Math.max(4, Math.min(60, preferences.getInt("able_delay_seconds", 10)));
+        ableDelay.setProgress(savedDelay - 4);
         ableDelay.setProgressTintList(ColorStateList.valueOf(ACCENT));
         ableDelay.setThumbTintList(ColorStateList.valueOf(ACCENT));
         updateAbleDelayLabel(savedDelay);
         ableDelay.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                updateAbleDelayLabel(progress + 3);
+                updateAbleDelayLabel(progress + 4);
             }
 
             @Override public void onStartTrackingTouch(SeekBar seekBar) { }
@@ -849,7 +849,7 @@ public final class SettingsActivity extends Activity {
                 .putInt("row_style", rowStyleGroup != null && rowStyleGroup.getCheckedRadioButtonId() == 411 ? 1 : 0)
                 .putBoolean("show_product_images", imageGroup == null || imageGroup.getCheckedRadioButtonId() != 421)
                 .putBoolean("show_breakdown", breakdownGroup == null || breakdownGroup.getCheckedRadioButtonId() != 431)
-                .putInt("able_delay_seconds", ableDelay == null ? 10 : ableDelay.getProgress() + 3)
+                .putInt("able_delay_seconds", ableDelay == null ? 10 : ableDelay.getProgress() + 4)
                 .putInt("able_mode", ableMode)
                 .remove("able_idle")
                 .apply();
