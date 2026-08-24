@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -129,6 +130,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
     private final List<ValueAnimator> decorativeAnimators = new ArrayList<>();
     private final Set<String> renderedItemKeys = new HashSet<>();
     private final Map<String, View> renderedRows = new LinkedHashMap<>();
+    private OrderState latestOrder;
 
     private final Runnable hideSettingsTask = this::hideSettingsButton;
     private final Runnable idleTask = () -> {
@@ -176,8 +178,43 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
         diagnostics = getSharedPreferences("diagnostics", 0);
         buildUi();
+        if (state == null) showStartupOverlay();
         restoreOrPair();
         refreshCatalogForImages();
+    }
+
+    private void showStartupOverlay() {
+        if (shell == null || isFinishing()) return;
+        FrameLayout overlay = new FrameLayout(this);
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF2A0641, 0xFF5A0794, 0xFF792EE8}
+        );
+        overlay.setBackground(background);
+        overlay.setClickable(true);
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.techlight_brand_white_transparent);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        int logoWidth = dp(compact ? 280 : 430);
+        int logoHeight = dp(compact ? 92 : 138);
+        overlay.addView(logo, new FrameLayout.LayoutParams(logoWidth, logoHeight, Gravity.CENTER));
+        shell.addView(overlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        logo.setAlpha(0f);
+        logo.setScaleX(0.94f);
+        logo.setScaleY(0.94f);
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(310)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        handler.postDelayed(() -> {
+            if (overlay.getParent() != shell) return;
+            overlay.animate().alpha(0f).setDuration(230).withEndAction(() -> {
+                if (overlay.getParent() == shell) shell.removeView(overlay);
+            }).start();
+        }, 620);
     }
 
     private void refreshCatalogForImages() {
@@ -644,7 +681,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 taxValue = addSummaryMetric(metrics, "الضريبة", "0.00");
                 discountValue = addSummaryMetric(metrics, "الخصم", "0.00");
             }
-            int metricSymbolSize = portrait ? 12 : (compact ? 11 : 13);
+            int metricSymbolSize = portrait ? 15 : (compact ? 14 : 16);
             subtotalValue.setText(money(0, metricSymbolSize, Color.WHITE));
             taxValue.setText(money(0, metricSymbolSize, Color.WHITE));
             discountValue.setText(money(0, metricSymbolSize, Color.WHITE));
@@ -707,10 +744,10 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         summary.addView(totalPanel, totalPanelParams);
 
         LinearLayout.LayoutParams companyParams = new LinearLayout.LayoutParams(
-                dp(portrait ? 82 : (compact ? 78 : 94)),
-                dp(portrait ? 22 : (compact ? 22 : 25))
+                dp(portrait ? 112 : (compact ? 110 : 134)),
+                dp(portrait ? 30 : (compact ? 30 : 36))
         );
-        companyParams.setMargins(0, dp(3), 0, dp(3));
+        companyParams.setMargins(0, dp(4), 0, dp(4));
         summary.addView(createCompanyBrand(), companyParams);
 
         LinearLayout dashboard = new LinearLayout(this);
@@ -812,11 +849,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private View createCompanyBrand() {
         ImageView brand = new ImageView(this);
-        brand.setImageResource(R.drawable.techlight_brand_transparent);
+        brand.setImageResource(R.drawable.techlight_brand_white_transparent);
         brand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         brand.setPadding(dp(3), dp(2), dp(3), dp(2));
 
-        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.48f, 0.86f);
+        ObjectAnimator shine = ObjectAnimator.ofFloat(brand, View.ALPHA, 0.62f, 1f);
         shine.setDuration(2400);
         shine.setRepeatMode(ValueAnimator.REVERSE);
         shine.setRepeatCount(ValueAnimator.INFINITE);
@@ -829,11 +866,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(compact ? 4 : 6), 0, dp(compact ? 4 : 6));
-        TextView name = text(label, compact ? 11 : 13, 0xFFE7DAF0);
+        row.setPadding(0, dp(compact ? 6 : 8), 0, dp(compact ? 6 : 8));
+        TextView name = text(label, compact ? 14 : 16, 0xFFE7DAF0);
         name.setPadding(0, 0, 0, 0);
         row.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        TextView value = text(initialValue, compact ? 11 : 13, Color.WHITE);
+        TextView value = text(initialValue, compact ? 15 : 17, Color.WHITE);
         value.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         value.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         value.setPadding(0, 0, 0, 0);
@@ -846,12 +883,12 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER);
-        column.setPadding(dp(4), dp(2), dp(4), dp(2));
-        TextView name = text(label, 10, 0xFFE7DAF0);
+        column.setPadding(dp(4), dp(3), dp(4), dp(3));
+        TextView name = text(label, 13, 0xFFE7DAF0);
         name.setGravity(Gravity.CENTER);
         name.setPadding(0, 0, 0, dp(1));
         column.addView(name);
-        TextView value = text(initialValue, 12, Color.WHITE);
+        TextView value = text(initialValue, 16, Color.WHITE);
         value.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         value.setGravity(Gravity.CENTER);
         value.setPadding(0, 0, 0, 0);
@@ -889,9 +926,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void showCompletionMoment() {
         String customerMessage = ui == null
-                ? "طلبك يُجهّز بكل حب"
-                : ui.getString("completed_message", "طلبك يُجهّز بكل حب");
-        showCustomerMoment(true, customerMessage, "تم تنفيذ الطلب", "شكرًا لاختياركم — بالعافية");
+                ? "تم اعتماد طلبك بنجاح"
+                : ui.getString("completed_message", "تم اعتماد طلبك بنجاح");
+        showCustomerMoment(true, customerMessage, "كل شيء تمام", "تم تنفيذ الطلب واعتماد الفاتورة");
     }
 
     private void showCustomerMoment(
@@ -914,7 +951,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         TextView message = text(
                 customerMessage == null || customerMessage.trim().isEmpty()
-                        ? (cooking ? "طلبك يُجهّز بكل حب" : "أهلًا وسهلًا بك")
+                        ? (cooking ? "تم اعتماد طلبك بنجاح" : "أهلًا وسهلًا بك")
                         : customerMessage.trim(),
                 portrait ? 21 : (compact ? 20 : 27),
                 primaryTextColor
@@ -926,8 +963,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         CustomerMomentView moment = new CustomerMomentView(this, cooking, accent, dark);
         LinearLayout.LayoutParams momentParams = new LinearLayout.LayoutParams(
-                dp(portrait ? 154 : (compact ? 142 : 178)),
-                dp(portrait ? 154 : (compact ? 142 : 178))
+                dp(portrait ? 190 : (compact ? 180 : 220)),
+                dp(portrait ? 190 : (compact ? 180 : 220))
         );
         momentParams.setMargins(0, dp(3), 0, dp(3));
         empty.addView(moment, momentParams);
@@ -1458,6 +1495,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     @Override public void onOrder(OrderState order) {
         if (order == null) return;
+        latestOrder = order;
         int catalogResolved = 0;
         try {
             catalogResolved = catalog == null ? 0 : catalog.enrich(order);
@@ -1468,7 +1506,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
         }
         final int resolved = catalogResolved;
-        writeDiagnostic("ORDER_RECEIVED", "items=" + order.items.size()
+        writeDiagnostic("ORDER_RECEIVED", "items=" + (order.items == null ? 0 : order.items.size())
                 + " — catalogResolved=" + resolved + " — total=" + order.total);
         runOnUiThread(() -> {
             try {
@@ -1477,14 +1515,23 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 if (orderList == null) buildUi();
                 handler.removeCallbacks(idleTask);
                 boolean empty = order.items == null || order.items.isEmpty();
-                if (!empty) {
+                boolean wasOrderVisible = orderVisible;
+                boolean completionEvent = OrderMomentPolicy.isCompletionEvent(
+                        empty, wasOrderVisible, order.completed, completionMomentUntil
+                );
+                if (!empty && !order.completed) {
                     completionMomentUntil = 0;
                     orderVisible = true;
                     hideAdvertisingForOrder();
                 }
-                boolean holdCompletion = empty
-                        && !order.completed
-                        && completionMomentUntil > System.currentTimeMillis();
+                boolean holdCompletion = OrderMomentPolicy.shouldHoldCompletion(
+                        completionEvent,
+                        empty,
+                        order.completed,
+                        completionMomentUntil,
+                        System.currentTimeMillis(),
+                        ui.getInt("able_mode", 0) == 0
+                );
                 int rows = empty ? 0 : order.items.size();
                 double units = 0;
                 if (!empty) {
@@ -1498,9 +1545,11 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     unitCount.setText("×  " + formatQuantity(units) + " قطعة");
                     animateCounter(unitCount, false);
                 }
-                if (empty) {
+                if (empty || order.completed) {
                     orderVisible = false;
-                    if (holdCompletion) {
+                    if (completionEvent) {
+                        // The branded receipt moment is rendered after totals are preserved below.
+                    } else if (holdCompletion) {
                         long remaining = Math.max(250L, completionMomentUntil - System.currentTimeMillis());
                         if (ui.getInt("able_mode", 0) > 0) scheduleIdle(remaining);
                     } else {
@@ -1516,17 +1565,20 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 } else {
                     renderOrderRows(order);
                 }
-                if (!holdCompletion) {
+                boolean preserveLastSummary = OrderMomentPolicy.shouldPreserveLastSummary(
+                        completionEvent, empty, order.total
+                );
+                if (!holdCompletion && !preserveLastSummary) {
                     updateSummaryValues(order);
                     animateTotal(order.total);
                 }
-                if (order.completed) {
+                if (completionEvent) {
                     setConnectionState(ui.getString("thanks", "شكرًا لزيارتكم"), true);
                     orderVisible = false;
                     completionMomentUntil = System.currentTimeMillis() + ableDelayMs();
                     showCompletionMoment();
                     if (ui.getInt("able_mode", 0) > 0) scheduleIdle(ableDelayMs());
-                } else if (!empty) {
+                } else if (!empty && !order.completed) {
                     setConnectionState("الطلب مباشر", true);
                 }
                 writeDiagnostic("ORDER_RENDERED", "items=" + rows
@@ -1586,7 +1638,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
         double tax = order.taxIncluded ? order.tax : 0;
         double discount = order.discountIncluded ? Math.abs(order.discount) : 0;
-        int metricSymbolSize = portrait ? 12 : (compact ? 11 : 13);
+        int metricSymbolSize = portrait ? 15 : (compact ? 14 : 16);
         if (subtotalValue != null) subtotalValue.setText(money(subtotal, metricSymbolSize, Color.WHITE));
         if (taxValue != null) taxValue.setText(money(tax, metricSymbolSize, Color.WHITE));
         if (discountValue != null) {
@@ -1936,6 +1988,30 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         } else if (scannerActive && barcodeScanner != null) {
             try { barcodeScanner.resume(); }
             catch (Throwable error) { handleScannerFailure(error); }
+        }
+    }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        getWindow().getDecorView().setSystemUiVisibility(5894);
+        if (scannerActive) {
+            writeDiagnostic("ORIENTATION_CHANGED_DURING_SCAN", "Camera kept alive without Activity restart");
+            return;
+        }
+        boolean keepCompletionMoment = completionMomentUntil > 0 && !orderVisible;
+        buildUi();
+        if (keepCompletionMoment) {
+            showCompletionMoment();
+            if (ui.getInt("able_mode", 0) > 0) {
+                long remaining = Math.max(250L, completionMomentUntil - System.currentTimeMillis());
+                scheduleIdle(remaining);
+            }
+            return;
+        }
+        if (client == null) {
+            restoreOrPair();
+        } else if (latestOrder != null) {
+            onOrder(latestOrder);
         }
     }
 
