@@ -4,7 +4,6 @@ import android.Manifest;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -364,18 +363,19 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
         LinearLayout orderCard = new LinearLayout(this);
         orderCard.setOrientation(LinearLayout.VERTICAL);
-        orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 12 : 18), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
-        orderCard.setBackground(strokeBg(surfaceColor, borderColor, 28));
-        orderCard.setElevation(dp(dark ? 0 : 2));
+        orderCard.setPadding(dp(compact ? 14 : 22), dp(compact ? 14 : 20), dp(compact ? 14 : 22), dp(compact ? 12 : 18));
+        orderCard.setBackground(strokeBg(surfaceColor, borderColor, 24));
+        orderCard.setElevation(dp(dark ? 0 : 1));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView orderLabel = text("طلبك الآن", compact ? 16 : 19, primaryTextColor);
+        TextView orderLabel = text("تفاصيل الطلب", compact ? 17 : 20, primaryTextColor);
         orderLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         header.addView(orderLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        itemCount = text("الأصناف  0", 12, secondaryTextColor);
+        itemCount = text("0 صنف", 12, accent);
+        itemCount.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         itemCount.setGravity(Gravity.CENTER);
-        itemCount.setBackground(round(softColor, 18));
+        itemCount.setBackground(round(dark ? mix(accent, surfaceColor, 0.76f) : lighten(accent, 0.91f), 18));
         itemCount.setPadding(dp(11), dp(5), dp(11), dp(5));
         LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -383,7 +383,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         );
         countParams.setMargins(0, 0, dp(7), 0);
         header.addView(itemCount, countParams);
-        unitCount = text("القطع  0", 12, secondaryTextColor);
+        unitCount = text("0 قطعة", 12, secondaryTextColor);
         unitCount.setGravity(Gravity.CENTER);
         unitCount.setBackground(round(softColor, 18));
         unitCount.setPadding(dp(11), dp(5), dp(11), dp(5));
@@ -393,11 +393,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         );
         unitParams.setMargins(0, 0, dp(7), 0);
         header.addView(unitCount, unitParams);
-        TextView liveBadge = text("مباشر", 12, accent);
-        liveBadge.setGravity(Gravity.CENTER);
-        liveBadge.setBackground(round(lighten(accent, 0.91f), 18));
-        liveBadge.setPadding(dp(11), dp(5), dp(11), dp(5));
-        header.addView(liveBadge);
         orderCard.addView(header);
 
         View divider = new View(this);
@@ -424,24 +419,22 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         summary.setPadding(dp(compact ? 18 : 26), dp(compact ? 16 : 26), dp(compact ? 18 : 26), dp(compact ? 16 : 26));
         GradientDrawable summaryBg = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                dark
-                        ? new int[]{mix(accent, 0xFF141A22, 0.72f), 0xFF171C24}
-                        : new int[]{lighten(accent, 0.90f), 0xFFFFFFFF}
+                new int[]{accent, mix(accent, 0xFF160C20, dark ? 0.68f : 0.46f)}
         );
-        summaryBg.setCornerRadius(dp(28));
+        summaryBg.setCornerRadius(dp(24));
         summary.setBackground(summaryBg);
-        summary.setElevation(dp(1));
+        summary.setElevation(dp(dark ? 0 : 3));
 
         addCustomerLogo(summary);
-        TextView totalLabel = text("الإجمالي المستحق", compact ? 15 : 17, secondaryTextColor);
+        TextView totalLabel = text("الإجمالي المستحق", compact ? 15 : 17, 0xFFEDE5F3);
         totalLabel.setGravity(Gravity.CENTER);
         summary.addView(totalLabel);
-        total = text("0.00 ر.س", compact ? 32 : 45, accent);
+        total = text("0.00 ر.س", compact ? 34 : 48, Color.WHITE);
         total.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         total.setGravity(Gravity.CENTER);
         total.setPadding(0, dp(3), 0, dp(6));
         summary.addView(total);
-        TextView safe = text("يتحدث لحظيًا مع نقطة البيع", compact ? 11 : 13, secondaryTextColor);
+        TextView safe = text("متزامن لحظيًا مع نقطة البيع", compact ? 11 : 13, 0xFFD9CDE2);
         safe.setGravity(Gravity.CENTER);
         summary.addView(safe);
 
@@ -500,9 +493,9 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         }
         ImageView store = new ImageView(this);
         store.setImageResource(R.drawable.ic_store);
-        store.setImageTintList(ColorStateList.valueOf(accent));
+        store.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         store.setPadding(dp(13), dp(13), dp(13), dp(13));
-        store.setBackground(round(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.86f), 22));
+        store.setBackground(round(0x24FFFFFF, 22));
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(compact ? 54 : 66), dp(compact ? 54 : 66));
         markParams.setMargins(0, 0, 0, dp(8));
         summary.addView(store, markParams);
@@ -528,8 +521,8 @@ public final class MainActivity extends Activity implements TechProClient.Listen
 
     private void showEmptyOrder(String heading, String subheading) {
         if (orderList == null) return;
-        if (itemCount != null) itemCount.setText("الأصناف  0");
-        if (unitCount != null) unitCount.setText("القطع  0");
+        if (itemCount != null) itemCount.setText("0 صنف");
+        if (unitCount != null) unitCount.setText("0 قطعة");
         orderList.removeAllViews();
         LinearLayout empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
@@ -957,13 +950,13 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                     for (OrderState.Item item : order.items) units += item.qty;
                 }
                 if (itemCount != null) {
-                    itemCount.setText("الأصناف  " + rows);
+                    itemCount.setText(rows + " صنف");
                     itemCount.setScaleX(0.94f);
                     itemCount.setScaleY(0.94f);
                     itemCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
                 }
                 if (unitCount != null) {
-                    unitCount.setText("القطع  " + formatQuantity(units));
+                    unitCount.setText(formatQuantity(units) + " قطعة");
                     unitCount.setScaleX(0.94f);
                     unitCount.setScaleY(0.94f);
                     unitCount.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
@@ -997,7 +990,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
                 }
                 writeDiagnostic("ORDER_RENDERED", "items=" + rows
                         + " — catalogResolved=" + resolved + " — total=" + order.total);
-                bringCustomerDisplayForward();
             } catch (Exception error) {
                 writeDiagnostic("ORDER_RENDER_FAILED",
                         error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage()));
@@ -1029,20 +1021,6 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         renderedTotal = target;
     }
 
-    private void bringCustomerDisplayForward() {
-        if (hasWindowFocus()) return;
-        try {
-            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-            if (manager != null) manager.moveTaskToFront(getTaskId(), 0);
-            writeDiagnostic("TASK_FOREGROUND", "moveTaskToFront");
-        } catch (Exception error) {
-            writeDiagnostic("TASK_FOREGROUND_FAILED", error.getClass().getSimpleName());
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(intent);
-        }
-    }
-
     private void writeDiagnostic(String stage, String detail) {
         if (diagnostics == null) return;
         diagnostics.edit()
@@ -1059,16 +1037,16 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         row.setPadding(dp(compact ? 10 : 14), dp(compact ? 8 : 11), dp(compact ? 10 : 14), dp(compact ? 8 : 11));
         row.setBackground(strokeBg(
                 newlyAdded
-                        ? (dark ? mix(accent, surfaceColor, 0.80f) : lighten(accent, 0.96f))
-                        : surfaceColor,
-                newlyAdded ? mix(accent, borderColor, 0.45f) : borderColor,
-                18
+                        ? (dark ? mix(accent, surfaceColor, 0.76f) : lighten(accent, 0.93f))
+                        : (index % 2 == 0 ? softColor : surfaceColor),
+                newlyAdded ? mix(accent, borderColor, 0.35f) : (index % 2 == 0 ? softColor : borderColor),
+                16
         ));
 
-        TextView qty = text(formatQuantity(item.qty) + " ×", compact ? 13 : 15, accent);
+        TextView qty = text(formatQuantity(item.qty) + " ×", compact ? 13 : 15, Color.WHITE);
         qty.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         qty.setGravity(Gravity.CENTER);
-        qty.setBackground(round(dark ? mix(accent, surfaceColor, 0.72f) : lighten(accent, 0.92f), 14));
+        qty.setBackground(round(accent, 14));
         qty.setPadding(dp(10), dp(6), dp(10), dp(6));
 
         LinearLayout nameBlock = new LinearLayout(this);
@@ -1089,7 +1067,7 @@ public final class MainActivity extends Activity implements TechProClient.Listen
         unitPrice.setPadding(dp(8), 0, dp(8), 0);
         nameBlock.addView(unitPrice);
 
-        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, primaryTextColor);
+        TextView price = text(String.format(Locale.US, "%.2f ر.س", item.total()), compact ? 15 : 19, accent);
         price.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         price.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
 
