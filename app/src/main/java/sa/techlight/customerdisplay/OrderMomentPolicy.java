@@ -10,6 +10,13 @@ final class OrderMomentPolicy {
         return Math.max(COMPLETION_ANIMATION_MS, configuredDelayMs);
     }
 
+    static int quantityDirection(double previousQuantity, double currentQuantity, boolean newlyAdded) {
+        if (newlyAdded) return 1;
+        if (Double.isNaN(previousQuantity)
+                || Math.abs(previousQuantity - currentQuantity) <= 0.00001) return 0;
+        return currentQuantity > previousQuantity ? 1 : -1;
+    }
+
     static boolean isCompletionEvent(
             boolean empty,
             boolean wasOrderVisible,
