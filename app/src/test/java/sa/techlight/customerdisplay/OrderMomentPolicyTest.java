@@ -13,6 +13,21 @@ public final class OrderMomentPolicyTest {
         assertEquals(10000L, OrderMomentPolicy.completionDisplayMs(10000L));
     }
 
+    @Test public void invoiceEntranceOverlapsItemTransferAndRowsFollowArrivals() {
+        long invoiceEntranceEnd = OrderMomentPolicy.INVOICE_ENTRANCE_START_MS
+                + OrderMomentPolicy.INVOICE_ENTRANCE_DURATION_MS;
+        assertTrue(OrderMomentPolicy.INVOICE_ENTRANCE_START_MS
+                <= OrderMomentPolicy.ITEM_TRANSFER_START_MS);
+        assertTrue(invoiceEntranceEnd > OrderMomentPolicy.ITEM_TRANSFER_START_MS);
+        assertTrue(OrderMomentPolicy.invoiceRowRevealStartMs(0) < invoiceEntranceEnd);
+        assertEquals(OrderMomentPolicy.ITEM_TRANSFER_STAGGER_MS,
+                OrderMomentPolicy.invoiceRowRevealStartMs(1)
+                        - OrderMomentPolicy.invoiceRowRevealStartMs(0));
+        assertEquals(OrderMomentPolicy.ITEM_TRANSFER_STAGGER_MS,
+                OrderMomentPolicy.invoiceRowRevealStartMs(2)
+                        - OrderMomentPolicy.invoiceRowRevealStartMs(1));
+    }
+
     @Test public void quantityMotionUsesGreenForAddsAndRedForRemovals() {
         assertEquals(1, OrderMomentPolicy.quantityDirection(Double.NaN, 1, true));
         assertEquals(1, OrderMomentPolicy.quantityDirection(1, 2, false));
