@@ -12,6 +12,7 @@ android {
         versionName '1.5.0'
     }
 
+    // CI wrapper builds the PP9000EU v1.5 source only.
     sourceSets {
         main {
             manifest.srcFile 'src/main/AndroidManifest.xml'
