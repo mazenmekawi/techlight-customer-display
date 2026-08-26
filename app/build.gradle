@@ -1,26 +1,24 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'sa.techlight.customerdisplay'
+    namespace 'sa.techlight.printersetup'
     compileSdk 35
 
     defaultConfig {
-        applicationId 'sa.techlight.customerdisplay'
+        applicationId 'sa.techlight.printersetup'
         minSdk 23
         targetSdk 35
-        versionCode 22
-        versionName '1.12.0'
+        versionCode 6
+        versionName '1.5.0'
     }
-}
 
-dependencies {
-    // JourneyApps 4.3.0 pulls a ZXing core that requires Android 7+ by default.
-    // Pinning the officially recommended compatible core prevents scanner crashes
-    // on Android 6 / API 23 customer tablets.
-    implementation('com.journeyapps:zxing-android-embedded:4.3.0') { transitive = false }
-    implementation 'com.google.zxing:core:3.3.0'
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'com.neovisionaries:nv-websocket-client:2.14'
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.json:json:20240303'
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java/sa/techlight/printersetup']
+            res.srcDirs = ['src/main/res']
+        }
+        test.java.srcDirs = []
+        androidTest.java.srcDirs = []
+    }
 }
