@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ techlight-printer-setup ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
