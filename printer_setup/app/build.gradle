@@ -7,7 +7,7 @@ android {
         applicationId 'sa.techlight.printersetup'
         minSdk 23
         targetSdk 35
-        versionCode 1
-        versionName '1.0.0-beta'
+        versionCode 3
+        versionName '1.3.0'
     }
 }
