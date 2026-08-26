@@ -181,7 +181,7 @@ public class MainActivityV13 extends Activity {
             showNeutral(tr("تم مسح المحاولة السابقة", "Previous attempt cleared"), tr("يمكنك الآن تعيين IP جديد.", "You can now assign a new IP."));
         });
 
-        TextView foot=text("Techlight • ضوء التقنية • PP9000EU • v1.3",11,0xFF8A8490,false); foot.setGravity(Gravity.CENTER); LinearLayout.LayoutParams fp=lp(-1,-2,0); fp.topMargin=dp(18); root.addView(foot,fp);
+        TextView foot=text("Techlight • ضوء التقنية • PP9000EU • v1.3.1",11,0xFF8A8490,false); foot.setGravity(Gravity.CENTER); LinearLayout.LayoutParams fp=lp(-1,-2,0); fp.topMargin=dp(18); root.addView(foot,fp);
         setContentView(sc);
     }
 
@@ -247,11 +247,13 @@ public class MainActivityV13 extends Activity {
                     ok = s.write(new byte[]{0x1B,0x40}, 1500);
                     sleep(180);
                     ok &= s.write(dhcpOff(), 1800);
-                    sleep(300);
-                    ok &= s.write(addr((byte)0x51, mask), 1800);
-                    sleep(300);
-                    ok &= s.write(addr((byte)0x52, n.gw), 1800);
-                    sleep(300);
+                    sleep(350);
+                    ok &= s.write(addr((byte)0x46, mask), 1800);
+                    sleep(350);
+                    ok &= s.write(addr((byte)0x45, n.gw), 1800);
+                    sleep(350);
+                    ok &= s.write(addr((byte)0x50, target), 2200);
+                    sleep(650);
                     ok &= s.write(addr((byte)0x50, target), 2200);
                 }
             } catch(Exception ignored) { ok = false; }
@@ -262,7 +264,7 @@ public class MainActivityV13 extends Activity {
             runOnUiThread(() -> {
                 busy(false);
                 refreshUi();
-                showWarning(tr("تم حفظ IP — أعد تشغيل الطابعة", "IP saved — restart printer"), tr("الـIP المطلوب: ", "Requested IP: ")+ip+tr("\nأطفئ الطابعة 5 ثوانٍ ثم شغّلها. التطبيق سيتحقق تلقائيًا بعد رجوعها.", "\nPower the printer off for 5 seconds, then on. The app will verify automatically when it returns."));
+                showWarning(tr("تم إرسال إعدادات الشبكة — أعد تشغيل الطابعة", "Network settings sent — restart printer"), tr("IP الجديد: ", "New IP: ")+ip+tr("\nSubnet: ", "\nSubnet: ")+mask.getHostAddress()+tr("\nGateway: ", "\nGateway: ")+n.gw.getHostAddress()+tr("\n\nأطفئ الطابعة 5 ثوانٍ ثم شغّلها. التطبيق سيتحقق تلقائيًا بعد رجوعها.", "\n\nPower the printer off for 5 seconds, then on. The app will verify automatically when it returns."));
             });
         });
     }
@@ -280,7 +282,7 @@ public class MainActivityV13 extends Activity {
     private void verifyPendingInternal() {
         String ip = prefs.getString("pending_ip", null);
         if (ip == null) { runOnUiThread(() -> busy(false)); return; }
-        boolean ok = waitPort(ip, 9100, 25000);
+        boolean ok = waitPort(ip, 9100, 30000);
         if (ok) {
             prefs.edit().putString("verified_ip", ip).remove("pending_ip").putBoolean("reboot_seen", true).apply();
             runOnUiThread(() -> {
