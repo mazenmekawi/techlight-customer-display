@@ -7,7 +7,7 @@ text = activity.read_text(encoding='utf-8')
 def replace_once(old, new, label):
     global text
     if old not in text:
-        raise SystemExit(f'V4 patch target not found: {label}')
+        raise SystemExit(f'V4.1 patch target not found: {label}')
     text = text.replace(old, new, 1)
 
 replace_once(
@@ -36,12 +36,37 @@ replace_once(
             historyStamp.setPadding(0, dp(3), 0, 0);
             numberBox.addView(historyStamp);
         } else {
-            TextView table = label(clean(order.table).isEmpty() ? orderTypeLabel(order) : t("table") + " " + order.table, 12, muted, true);
+            String metaText = orderTypeLabel(order);
+            if (!clean(order.table).isEmpty()) {
+                if (!clean(metaText).isEmpty() && !metaText.equals(t("cashierOrder"))) metaText += "  •  ";
+                else metaText = "";
+                metaText += t("table") + " " + order.table;
+            }
+            if (clean(metaText).isEmpty()) metaText = t("cashierOrder");
+            TextView table = label(metaText, 12, muted, true);
             table.setPadding(0, dp(2), 0, 0);
             numberBox.addView(table);
         }
 ''',
-    'history title'
+    'history title and service/table metadata'
+)
+
+replace_once(
+'''            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+            lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+            lp.setMargins(dp(6), dp(6), dp(6), dp(6));
+            board.addView(card, lp);
+''',
+'''            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = cardWidthPx();
+            lp.height = GridLayout.LayoutParams.WRAP_CONTENT;
+            lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED);
+            lp.setMargins(dp(6), dp(6), dp(6), dp(6));
+            board.addView(card, lp);
+''',
+    'fixed card width'
 )
 
 replace_once(
@@ -98,8 +123,60 @@ history_new = r'''        if (history) {
         }
 '''
 if history_old not in text:
-    raise SystemExit('V4 patch target not found: history details')
+    raise SystemExit('V4.1 patch target not found: history details')
 text = text.replace(history_old, history_new, 1)
+
+replace_once(
+'''        KitchenOrder before = strongExisting(order);
+        order.inferredTemporarySave = inferred;
+        order.temporaryOrder = true;
+        boolean changed = store.upsert(order);
+        if (before == null) beepNew();
+        else if (changed) beepModified();
+''',
+'''        KitchenOrder before = strongExisting(order);
+        boolean promotion = before != null
+                && clean(before.id).toLowerCase(Locale.US).startsWith("weak-")
+                && !clean(order.id).toLowerCase(Locale.US).startsWith("weak-");
+        order.inferredTemporarySave = inferred;
+        order.temporaryOrder = true;
+        boolean changed = store.upsert(order);
+        if (before == null) beepNew();
+        else if (changed && !promotion) beepModified();
+''',
+    'no false modification beep during promotion'
+)
+
+replace_once(
+'''        if (!number.isEmpty()) return store.findByNumber(number);
+        return null;
+''',
+'''        if (!number.isEmpty()) {
+            KitchenOrder byNumber = store.findByNumber(number);
+            if (byNumber != null) return byNumber;
+        }
+        if ((!number.isEmpty() || (!id.isEmpty() && !id.startsWith("weak-"))) && !incoming.items.isEmpty()) {
+            KitchenOrder promotable = store.findPromotableWeak(incoming);
+            if (promotable != null) return promotable;
+        }
+        return null;
+''',
+    'promotable temporary lookup'
+)
+
+replace_once(
+'''    private String orderTypeLabel(KitchenOrder order) {
+        return clean(order.orderType).isEmpty() ? t("cashierOrder") : order.orderType;
+    }
+''',
+'''    private String orderTypeLabel(KitchenOrder order) {
+        if (order == null) return t("cashierOrder");
+        String rendered = KitchenSignalV2.displayOrderType(order.orderType, ar());
+        return clean(rendered).isEmpty() ? t("cashierOrder") : rendered;
+    }
+''',
+    'localized service type'
+)
 
 replace_once(
 '''        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
@@ -120,6 +197,21 @@ replace_once(
         scroll.addView(panel);
 ''',
     'clear button'
+)
+
+replace_once(
+'''    private int columns() {
+''',
+'''    private int cardWidthPx() {
+        int cols = Math.max(1, columns());
+        int screen = getResources().getDisplayMetrics().widthPixels;
+        int available = screen - dp(24) - (cols * dp(12));
+        return Math.max(dp(280), available / cols);
+    }
+
+    private int columns() {
+''',
+    'card width helper'
 )
 
 replace_once(
@@ -183,16 +275,20 @@ replace_once(
     'history formatter and clear methods'
 )
 
-# Build-time guard: refuse to ship if the requested V4 pieces are missing.
+# Build-time guard: refuse to ship if the requested V4.1 pieces are missing.
 for required in [
         '"#" + number',
         'formatHistoryStamp(order)',
         'showClearMenu()',
         'store.clearActive()',
         'store.clearHistory()',
-        'store.clearAll()']:
+        'store.clearAll()',
+        'cardWidthPx()',
+        'store.findPromotableWeak(incoming)',
+        'KitchenSignalV2.displayOrderType(order.orderType, ar())',
+        'metaText += "  •  "']:
     if required not in text:
-        raise SystemExit(f'V4 validation missing: {required}')
+        raise SystemExit(f'V4.1 validation missing: {required}')
 
 activity.write_text(text, encoding='utf-8')
 
@@ -202,7 +298,7 @@ login_text = login_text.replace('logo.setImageResource(R.drawable.techlight_mark
 login_text = login_text.replace('        if (brandLoader != null) brandLoader.load(BRAND_LOGO, logo, null);\n', '')
 login_text = login_text.replace('0xFF1769E0', '0xFF7432E0')
 if 'R.drawable.techlight_t_logo' not in login_text:
-    raise SystemExit('V4 validation missing: login purple T logo')
+    raise SystemExit('V4.1 validation missing: login purple T logo')
 login.write_text(login_text, encoding='utf-8')
 
-print('TechPro Kitchen V4 finalizer applied successfully')
+print('TechPro Kitchen V4.1 finalizer applied successfully')
