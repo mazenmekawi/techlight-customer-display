@@ -57,7 +57,9 @@ public final class ProductImageLoader {
     public void load(String rawPath, ImageView target, Runnable onLoaded) {
         String key = ProductCatalog.clean(rawPath);
         target.setTag(key);
-        target.setVisibility(View.GONE);
+        // Preserve a bundled fallback drawable (used by the website brand mark) while network loading.
+        if (target.getDrawable() == null) target.setVisibility(View.GONE);
+        else target.setVisibility(View.VISIBLE);
         if (key.isEmpty()) return;
 
         Bitmap cached;
