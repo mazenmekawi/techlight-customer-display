@@ -12,7 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-/** Clean v2 queue isolated from the experimental v1 queue. */
+/** Durable kitchen queue with fixed lifecycle timestamps for history analytics. */
 public final class KitchenOrderStoreV2 {
     private static final String PREF = "techpro_kitchen_queue_v2";
     private static final int MAX_HISTORY = 180;
@@ -66,6 +66,8 @@ public final class KitchenOrderStoreV2 {
             fresh.createdAt = fresh.createdAt > 0 ? fresh.createdAt : now;
             fresh.updatedAt = now;
             fresh.changedAt = 0L;
+            fresh.startedAt = 0L;
+            fresh.readyAt = 0L;
             fresh.kitchenStatus = KitchenOrder.Status.NEW;
             active.put(id, fresh);
             persist();
@@ -82,7 +84,7 @@ public final class KitchenOrderStoreV2 {
         if (!clean(incoming.rawStatus).isEmpty()) merged.rawStatus = incoming.rawStatus;
         if (!incoming.items.isEmpty()) {
             merged.items.clear();
-            for (KitchenOrder.Item item : incoming.items) merged.items.add(copyItem(item));
+            for (KitchenOrder.Item item : incoming.items) merged.items.add(KitchenOrder.copyItem(item));
         }
         String after = merged.contentSignature();
         boolean changed = !before.equals(after);
@@ -90,6 +92,7 @@ public final class KitchenOrderStoreV2 {
         merged.revision = Math.max(previous.revision + (changed ? 1 : 0), incoming.revision);
         if (changed) merged.changedAt = now;
         merged.inferredTemporarySave = previous.inferredTemporarySave || incoming.inferredTemporarySave;
+        merged.temporaryOrder = previous.temporaryOrder || incoming.temporaryOrder;
         active.put(id, merged);
         persist();
         return changed;
@@ -106,11 +109,23 @@ public final class KitchenOrderStoreV2 {
     public synchronized void setStatus(String id, KitchenOrder.Status status) {
         KitchenOrder order = active.get(KitchenSignalV2.cleanIdentity(id));
         if (order == null) return;
+        long now = System.currentTimeMillis();
         order.kitchenStatus = status;
-        order.updatedAt = System.currentTimeMillis();
+        order.updatedAt = now;
+        if (status == KitchenOrder.Status.PREPARING && order.startedAt <= 0L) {
+            order.startedAt = now;
+        }
+        if (status == KitchenOrder.Status.READY && order.readyAt <= 0L) {
+            if (order.startedAt <= 0L) order.startedAt = now;
+            order.readyAt = now;
+        }
         if (status == KitchenOrder.Status.DONE) {
+            if (order.startedAt <= 0L) order.startedAt = now;
+            if (order.readyAt <= 0L) order.readyAt = now;
             active.remove(order.id);
-            history.add(0, order.copy());
+            KitchenOrder archived = order.copy();
+            archived.updatedAt = now; // fixed completion timestamp; never moves in history.
+            history.add(0, archived);
             trimHistory();
         }
         persist();
@@ -119,9 +134,10 @@ public final class KitchenOrderStoreV2 {
     public synchronized void cancel(String id) {
         KitchenOrder order = active.get(KitchenSignalV2.cleanIdentity(id));
         if (order == null) return;
+        long now = System.currentTimeMillis();
         order.kitchenStatus = KitchenOrder.Status.CANCELLED;
-        order.updatedAt = System.currentTimeMillis();
-        order.changedAt = order.updatedAt;
+        order.updatedAt = now;
+        order.changedAt = now;
         persist();
     }
 
@@ -183,19 +199,6 @@ public final class KitchenOrderStoreV2 {
         ArrayList<KitchenOrder> result = new ArrayList<>();
         for (KitchenOrder order : values) result.add(order.copy());
         return result;
-    }
-
-    private static KitchenOrder.Item copyItem(KitchenOrder.Item source) {
-        KitchenOrder.Item item = new KitchenOrder.Item();
-        item.lineId = source.lineId;
-        item.itemId = source.itemId;
-        item.name = source.name;
-        item.qty = source.qty;
-        item.note = source.note;
-        item.station = source.station;
-        item.modifiers.addAll(source.modifiers);
-        item.removed.addAll(source.removed);
-        return item;
     }
 
     private static String clean(String value) {
