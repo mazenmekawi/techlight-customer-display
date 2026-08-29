@@ -86,20 +86,20 @@ replace_once(
     'history state row'
 )
 
-replace_once(
-'''        if (history) {
+history_old = r'''        if (history) {
             out.append('\n').append(t("duration")).append(": ").append(formatAge(finalDuration(order))).append('\n');
             if (prepDuration(order) > 0) out.append(t("prepTime")).append(": ").append(formatAge(prepDuration(order))).append('\n');
         }
-''',
-'''        if (history) {
+'''
+history_new = r'''        if (history) {
             out.append(formatHistoryStamp(order)).append('\n');
             out.append(t("duration")).append(": ").append(formatAge(finalDuration(order))).append('\n');
             if (prepDuration(order) > 0) out.append(t("prepTime")).append(": ").append(formatAge(prepDuration(order))).append('\n');
         }
-''',
-    'history details'
-)
+'''
+if history_old not in text:
+    raise SystemExit('V4 patch target not found: history details')
+text = text.replace(history_old, history_new, 1)
 
 replace_once(
 '''        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
@@ -183,6 +183,17 @@ replace_once(
     'history formatter and clear methods'
 )
 
+# Build-time guard: refuse to ship if the requested V4 pieces are missing.
+for required in [
+        '"#" + number',
+        'formatHistoryStamp(order)',
+        'showClearMenu()',
+        'store.clearActive()',
+        'store.clearHistory()',
+        'store.clearAll()']:
+    if required not in text:
+        raise SystemExit(f'V4 validation missing: {required}')
+
 activity.write_text(text, encoding='utf-8')
 
 login = Path('app/src/main/java/sa/techlight/customerdisplay/KitchenLoginActivityV3.java')
@@ -190,6 +201,8 @@ login_text = login.read_text(encoding='utf-8')
 login_text = login_text.replace('logo.setImageResource(R.drawable.techlight_mark);', 'logo.setImageResource(R.drawable.techlight_t_logo);')
 login_text = login_text.replace('        if (brandLoader != null) brandLoader.load(BRAND_LOGO, logo, null);\n', '')
 login_text = login_text.replace('0xFF1769E0', '0xFF7432E0')
+if 'R.drawable.techlight_t_logo' not in login_text:
+    raise SystemExit('V4 validation missing: login purple T logo')
 login.write_text(login_text, encoding='utf-8')
 
 print('TechPro Kitchen V4 finalizer applied successfully')
