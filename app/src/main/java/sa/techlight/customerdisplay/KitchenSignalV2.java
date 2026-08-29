@@ -54,8 +54,7 @@ public final class KitchenSignalV2 {
     }
 
     public static boolean valid(String value) {
-        String v = cleanIdentity(value);
-        return !v.isEmpty();
+        return !cleanIdentity(value).isEmpty();
     }
 
     public static String cleanIdentity(String value) {
@@ -65,13 +64,15 @@ public final class KitchenSignalV2 {
         String n = v.toLowerCase(Locale.US);
         if ("0".equals(n) || "0.0".equals(n) || "-1".equals(n)
                 || "null".equals(n) || "undefined".equals(n) || "none".equals(n)
-                || "false".equals(n) || "00000000-0000-0000-0000-000000000000".equals(n)) return "";
+                || "false".equals(n) || "00000000-0000-0000-0000-000000000000".equals(n)
+                || "invoice-0".equals(n) || "invoice-0.0".equals(n)
+                || "order-0".equals(n) || "sale-0".equals(n) || "transaction-0".equals(n)) return "";
         return v;
     }
 
     private static String cleanDisplay(String value) {
         String v = value == null ? "" : value.trim();
-        return "0".equals(v) || "null".equalsIgnoreCase(v) ? "" : v;
+        return "0".equals(v) || "0.0".equals(v) || "null".equalsIgnoreCase(v) ? "" : v;
     }
 
     private enum Candidate { NUMBER, ID }
