@@ -12,10 +12,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-/** Durable kitchen queue with fixed lifecycle timestamps for history analytics. */
+/** Durable kitchen queue with fixed lifecycle timestamps and bounded history retention. */
 public final class KitchenOrderStoreV2 {
     private static final String PREF = "techpro_kitchen_queue_v2";
-    private static final int MAX_HISTORY = 180;
+    private static final int MAX_HISTORY = 1500;
+    private static final long HISTORY_RETENTION_MS = 2L * 24L * 60L * 60L * 1000L;
 
     private final SharedPreferences preferences;
     private final LinkedHashMap<String, KitchenOrder> active = new LinkedHashMap<>();
@@ -33,6 +34,7 @@ public final class KitchenOrderStoreV2 {
     }
 
     public synchronized List<KitchenOrder> history() {
+        if (pruneHistory(System.currentTimeMillis())) persist();
         ArrayList<KitchenOrder> result = new ArrayList<>();
         for (KitchenOrder order : history) result.add(order.copy());
         return result;
@@ -126,7 +128,7 @@ public final class KitchenOrderStoreV2 {
             KitchenOrder archived = order.copy();
             archived.updatedAt = now; // fixed completion timestamp; never moves in history.
             history.add(0, archived);
-            trimHistory();
+            trimHistory(now);
         }
         persist();
     }
@@ -142,6 +144,7 @@ public final class KitchenOrderStoreV2 {
     }
 
     public synchronized KitchenOrder recallLast() {
+        if (pruneHistory(System.currentTimeMillis())) persist();
         if (history.isEmpty()) return null;
         KitchenOrder order = history.remove(0);
         order.kitchenStatus = KitchenOrder.Status.READY;
@@ -155,6 +158,25 @@ public final class KitchenOrderStoreV2 {
         int result = 0;
         for (KitchenOrder order : active.values()) if (order.kitchenStatus == status) result++;
         return result;
+    }
+
+    /** Deletes only currently visible/active kitchen tickets. */
+    public synchronized void clearActive() {
+        active.clear();
+        persist();
+    }
+
+    /** Deletes only completed-order history. */
+    public synchronized void clearHistory() {
+        history.clear();
+        persist();
+    }
+
+    /** Deletes active tickets and history together. */
+    public synchronized void clearAll() {
+        active.clear();
+        history.clear();
+        persist();
     }
 
     private void load() {
@@ -171,10 +193,11 @@ public final class KitchenOrderStoreV2 {
                 if (!order.id.isEmpty()) active.put(order.id, order);
             }
             JSONArray old = new JSONArray(preferences.getString("history", "[]"));
-            for (int i = 0; i < old.length() && history.size() < MAX_HISTORY; i++) {
+            for (int i = 0; i < old.length(); i++) {
                 JSONObject json = old.optJSONObject(i);
                 if (json != null) history.add(KitchenOrder.fromJson(json));
             }
+            if (pruneHistory(System.currentTimeMillis())) persist();
         } catch (Exception ignored) {
             active.clear();
             history.clear();
@@ -191,8 +214,26 @@ public final class KitchenOrderStoreV2 {
         } catch (Exception ignored) { }
     }
 
-    private void trimHistory() {
-        while (history.size() > MAX_HISTORY) history.remove(history.size() - 1);
+    private void trimHistory(long now) {
+        pruneHistory(now);
+    }
+
+    private boolean pruneHistory(long now) {
+        boolean changed = false;
+        long cutoff = now - HISTORY_RETENTION_MS;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            KitchenOrder order = history.get(i);
+            long completedAt = order.updatedAt > 0L ? order.updatedAt : order.readyAt;
+            if (completedAt > 0L && completedAt < cutoff) {
+                history.remove(i);
+                changed = true;
+            }
+        }
+        while (history.size() > MAX_HISTORY) {
+            history.remove(history.size() - 1);
+            changed = true;
+        }
+        return changed;
     }
 
     private static ArrayList<KitchenOrder> copies(Iterable<KitchenOrder> values) {
