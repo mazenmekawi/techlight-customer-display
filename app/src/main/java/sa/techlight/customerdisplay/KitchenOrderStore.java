@@ -13,10 +13,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Small durable queue. Kitchen orders survive app restarts and short network outages. */
+/** Durable queue for active and recently completed kitchen tickets. */
 public final class KitchenOrderStore {
     private static final String PREF = "techpro_kitchen_queue_v1";
-    private static final int MAX_HISTORY = 120;
+    private static final int MAX_HISTORY = 150;
 
     private final SharedPreferences preferences;
     private final LinkedHashMap<String, KitchenOrder> active = new LinkedHashMap<>();
@@ -34,32 +34,34 @@ public final class KitchenOrderStore {
         return result;
     }
 
+    public synchronized List<KitchenOrder> history() {
+        ArrayList<KitchenOrder> result = new ArrayList<>();
+        for (KitchenOrder order : history) result.add(order.copy());
+        return result;
+    }
+
     public synchronized KitchenOrder find(String id) {
         KitchenOrder value = active.get(id);
         return value == null ? null : value.copy();
     }
 
     public synchronized KitchenOrder findByNumber(String number) {
-        String target = KitchenOrder.clean(number);
+        String target = KitchenOrder.meaningfulNumber(number);
         if (target.isEmpty()) return null;
         for (KitchenOrder order : active.values()) {
-            if (target.equalsIgnoreCase(KitchenOrder.clean(order.displayNumber))) return order.copy();
+            if (target.equalsIgnoreCase(KitchenOrder.meaningfulNumber(order.displayNumber))) return order.copy();
         }
         return null;
     }
 
-    public synchronized boolean contains(String id) {
-        return id != null && active.containsKey(id);
-    }
-
-    /** Upserts a saved order. Empty payment-only payloads never wipe kitchen line items. */
+    /** Upserts one authoritative saved ticket. Payment-only messages never wipe line items. */
     public synchronized boolean upsert(KitchenOrder incoming) {
         if (incoming == null || KitchenOrder.clean(incoming.id).isEmpty()) return false;
         long now = System.currentTimeMillis();
         KitchenOrder previous = active.get(incoming.id);
-        if (previous == null && !KitchenOrder.clean(incoming.displayNumber).isEmpty()) {
+        if (previous == null && !KitchenOrder.meaningfulNumber(incoming.displayNumber).isEmpty()) {
             for (Map.Entry<String, KitchenOrder> entry : active.entrySet()) {
-                if (incoming.displayNumber.equalsIgnoreCase(KitchenOrder.clean(entry.getValue().displayNumber))) {
+                if (incoming.displayNumber.equalsIgnoreCase(KitchenOrder.meaningfulNumber(entry.getValue().displayNumber))) {
                     previous = entry.getValue();
                     incoming.id = entry.getKey();
                     break;
@@ -77,7 +79,7 @@ public final class KitchenOrderStore {
 
         KitchenOrder merged = previous.copy();
         String before = merged.contentSignature();
-        if (!KitchenOrder.clean(incoming.displayNumber).isEmpty()) merged.displayNumber = incoming.displayNumber;
+        if (!KitchenOrder.meaningfulNumber(incoming.displayNumber).isEmpty()) merged.displayNumber = incoming.displayNumber;
         if (!KitchenOrder.clean(incoming.table).isEmpty()) merged.table = incoming.table;
         if (!KitchenOrder.clean(incoming.orderType).isEmpty()) merged.orderType = incoming.orderType;
         if (!KitchenOrder.clean(incoming.customerNote).isEmpty()) merged.customerNote = incoming.customerNote;
@@ -85,10 +87,11 @@ public final class KitchenOrderStore {
         if (!KitchenOrder.clean(incoming.rawStatus).isEmpty()) merged.rawStatus = incoming.rawStatus;
         if (!incoming.items.isEmpty()) {
             merged.items.clear();
-            for (KitchenOrder.Item item : incoming.items) merged.items.add(copyItem(item));
+            for (KitchenOrder.Item item : incoming.items) merged.items.add(KitchenOrder.copyItem(item));
         }
         merged.updatedAt = now;
         merged.revision = Math.max(previous.revision + 1, incoming.revision);
+        merged.temporaryOrder = previous.temporaryOrder || incoming.temporaryOrder;
         merged.inferredTemporarySave = previous.inferredTemporarySave || incoming.inferredTemporarySave;
         if (!before.equals(merged.contentSignature())) merged.changedAt = now;
         active.put(merged.id, merged);
@@ -107,8 +110,15 @@ public final class KitchenOrderStore {
     public synchronized void setStatus(String id, KitchenOrder.Status status) {
         KitchenOrder order = active.get(id);
         if (order == null) return;
+        long now = System.currentTimeMillis();
         order.kitchenStatus = status;
-        order.updatedAt = System.currentTimeMillis();
+        order.updatedAt = now;
+        if (status == KitchenOrder.Status.PREPARING && order.startedAt <= 0) order.startedAt = now;
+        if (status == KitchenOrder.Status.READY && order.readyAt <= 0) order.readyAt = now;
+        if (status == KitchenOrder.Status.NEW) {
+            order.startedAt = 0L;
+            order.readyAt = 0L;
+        }
         if (status == KitchenOrder.Status.DONE) {
             active.remove(id);
             history.add(0, order.copy());
@@ -126,33 +136,30 @@ public final class KitchenOrderStore {
         persist();
     }
 
+    public synchronized KitchenOrder recall(String id) {
+        if (KitchenOrder.clean(id).isEmpty()) return null;
+        for (int i = 0; i < history.size(); i++) {
+            KitchenOrder order = history.get(i);
+            if (!id.equals(order.id)) continue;
+            history.remove(i);
+            order.kitchenStatus = KitchenOrder.Status.READY;
+            order.updatedAt = System.currentTimeMillis();
+            active.put(order.id, order.copy());
+            persist();
+            return order.copy();
+        }
+        return null;
+    }
+
     public synchronized KitchenOrder recallLast() {
         if (history.isEmpty()) return null;
-        KitchenOrder order = history.remove(0);
-        order.kitchenStatus = KitchenOrder.Status.READY;
-        order.updatedAt = System.currentTimeMillis();
-        active.put(order.id, order);
-        persist();
-        return order.copy();
+        return recall(history.get(0).id);
     }
 
     public synchronized int count(KitchenOrder.Status status) {
         int count = 0;
         for (KitchenOrder order : active.values()) if (order.kitchenStatus == status) count++;
         return count;
-    }
-
-    private KitchenOrder.Item copyItem(KitchenOrder.Item source) {
-        KitchenOrder.Item item = new KitchenOrder.Item();
-        item.lineId = source.lineId;
-        item.itemId = source.itemId;
-        item.name = source.name;
-        item.qty = source.qty;
-        item.note = source.note;
-        item.station = source.station;
-        item.modifiers.addAll(source.modifiers);
-        item.removed.addAll(source.removed);
-        return item;
     }
 
     private void load() {
