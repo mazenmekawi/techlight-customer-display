@@ -22,13 +22,14 @@
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".KitchenActivity" android:exported="false" />
         <activity android:name=".KitchenActivityV2" android:exported="false" />
+        <activity android:name=".KitchenActivityV3" android:exported="false" />
         <activity android:name=".KitchenLoginActivity" android:exported="false" />
         <activity
             android:name=".KitchenLoginActivityV3"
             android:exported="false"
             android:screenOrientation="fullSensor" />
         <activity
-            android:name=".KitchenActivityV3"
+            android:name=".KitchenActivityV42"
             android:alwaysRetainTaskState="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="true"
