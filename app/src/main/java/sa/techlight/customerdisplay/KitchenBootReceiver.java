@@ -11,7 +11,7 @@ public final class KitchenBootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action) && !"android.intent.action.QUICKBOOT_POWERON".equals(action)) return;
         try {
-            Intent launch = new Intent(context, KitchenActivity.class);
+            Intent launch = new Intent(context, KitchenActivityV2.class);
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             context.startActivity(launch);
         } catch (Throwable ignored) { }
