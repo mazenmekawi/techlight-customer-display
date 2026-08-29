@@ -27,7 +27,6 @@ public final class StrictInvoiceExtractor {
                     "invoiceNumber", "invoiceNo", "invoiceNum", "invoiceCode", "invoiceSerial",
                     "invoiceSequence", "invoiceSequenceNo", "invoiceSeq", "invoiceRef", "invoiceReference",
                     "invNo", "invNumber", "invNum", "invSerial", "invCode",
-                    "invoice_no", "invoice_number", "invoice_num", "invoice_serial", "invoice_code",
                     "salesInvoiceNo", "salesInvoiceNumber", "saleInvoiceNo", "saleInvoiceNumber",
                     "posInvoiceNo", "posInvoiceNumber", "receiptNo", "receiptNumber",
                     "billNo", "billNumber", "voucherNo", "voucherNumber", "documentNo", "documentNumber",
@@ -65,7 +64,7 @@ public final class StrictInvoiceExtractor {
     }
 
     private static boolean numberContext(String key) {
-        String k = key == null ? "" : key.toLowerCase(Locale.US).replace("_", "").replace("-", "");
+        String k = normalizeKey(key);
         return k.contains("invoice") || k.contains("receipt") || k.contains("bill")
                 || k.contains("voucher") || k.contains("document") || k.contains("temporder")
                 || k.equals("order") || k.equals("sale") || k.equals("transaction");
@@ -76,10 +75,11 @@ public final class StrictInvoiceExtractor {
         Object raw = null;
         if (object.has(requested)) raw = object.opt(requested);
         else {
+            String target = normalizeKey(requested);
             Iterator<String> keys = object.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
-                if (key.equalsIgnoreCase(requested)) {
+                if (normalizeKey(key).equals(target)) {
                     raw = object.opt(key);
                     break;
                 }
@@ -87,6 +87,13 @@ public final class StrictInvoiceExtractor {
         }
         if (!(raw instanceof String) && !(raw instanceof Number)) return "";
         return String.valueOf(raw).trim();
+    }
+
+    private static String normalizeKey(String key) {
+        return key == null ? "" : key.toLowerCase(Locale.US)
+                .replace("_", "")
+                .replace("-", "")
+                .replace(" ", "");
     }
 
     private static boolean valid(String value) {
