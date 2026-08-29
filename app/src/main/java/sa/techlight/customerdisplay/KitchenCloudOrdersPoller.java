@@ -3,11 +3,18 @@ package sa.techlight.customerdisplay;
 import android.os.Handler;
 import android.os.Looper;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,8 +38,8 @@ public final class KitchenCloudOrdersPoller {
     }
 
     static final String ENDPOINT = "https://posapifornewapp.techlight.sa/api/TemporaryOrders?Page=1&PageSize=300";
+    static final String ORDER_TYPES_ENDPOINT = "https://posapifornewapp.techlight.sa/api/ErpLov/168";
     private static final long POLL_MS = 2000L;
-    private static final long RETRY_MS = 5000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -45,6 +52,8 @@ public final class KitchenCloudOrdersPoller {
     private final String token;
     private final String posCode;
     private final Listener listener;
+    private final HashMap<Long, String> orderTypeNames = new HashMap<>();
+    private volatile boolean orderTypesLoaded;
     private volatile boolean running;
 
     private final Runnable tick = new Runnable() {
@@ -81,34 +90,23 @@ public final class KitchenCloudOrdersPoller {
     private void fetchOnce() {
         long started = System.currentTimeMillis();
         try {
-            Request request = new Request.Builder()
-                    .url(HttpUrl.get(ENDPOINT))
-                    .get()
-                    .header("Accept", "application/json")
-                    .header("Authorization", "Bearer " + token)
-                    .build();
-            try (Response response = http.newCall(request).execute()) {
-                String raw = response.body() == null ? "" : response.body().string();
-                if (response.code() == 401 || response.code() == 403) {
-                    main.post(() -> {
-                        if (!running || listener == null) return;
-                        listener.onStatus("Cloud session expired", false);
-                        listener.onUnauthorized();
-                    });
-                    return;
-                }
-                if (!response.isSuccessful()) throw new IOException("TemporaryOrders HTTP " + response.code());
-
-                List<KitchenTemporaryOrdersApiClient.Candidate> candidates = KitchenTemporaryOrdersApiClient.parseCandidates(raw);
-                List<KitchenOrder> orders = convert(candidates, posCode);
-                long elapsed = System.currentTimeMillis() - started;
-                String detail = "Cloud • " + orders.size() + " active • " + elapsed + "ms";
-                main.post(() -> {
-                    if (!running || listener == null) return;
-                    listener.onStatus("Cloud connected", true);
-                    listener.onSnapshot(orders, detail);
-                });
-            }
+            if (!orderTypesLoaded) loadOrderTypes();
+            String raw = executeGet(ENDPOINT);
+            List<KitchenTemporaryOrdersApiClient.Candidate> candidates = KitchenTemporaryOrdersApiClient.parseCandidates(raw);
+            List<KitchenOrder> orders = convert(candidates, posCode, orderTypeNames);
+            long elapsed = System.currentTimeMillis() - started;
+            String detail = "Cloud • " + orders.size() + " active • " + elapsed + "ms";
+            main.post(() -> {
+                if (!running || listener == null) return;
+                listener.onStatus("Cloud connected", true);
+                listener.onSnapshot(orders, detail);
+            });
+        } catch (Unauthorized unauthorized) {
+            main.post(() -> {
+                if (!running || listener == null) return;
+                listener.onStatus("Cloud session expired", false);
+                listener.onUnauthorized();
+            });
         } catch (Throwable error) {
             String detail = "Cloud retry • " + error.getClass().getSimpleName();
             main.post(() -> {
@@ -119,7 +117,48 @@ public final class KitchenCloudOrdersPoller {
         }
     }
 
+    private String executeGet(String url) throws Exception {
+        Request request = new Request.Builder()
+                .url(HttpUrl.get(url))
+                .get()
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + token)
+                .build();
+        try (Response response = http.newCall(request).execute()) {
+            String raw = response.body() == null ? "" : response.body().string();
+            if (response.code() == 401 || response.code() == 403) throw new Unauthorized();
+            if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
+            return raw;
+        }
+    }
+
+    private void loadOrderTypes() {
+        try {
+            String raw = executeGet(ORDER_TYPES_ENDPOINT);
+            HashMap<Long, String> parsed = new HashMap<>();
+            collectOrderTypes(structured(raw), parsed, 0);
+            synchronized (orderTypeNames) {
+                orderTypeNames.clear();
+                orderTypeNames.putAll(parsed);
+            }
+        } catch (Unauthorized unauthorized) {
+            throw new RuntimeException(unauthorized);
+        } catch (Throwable ignored) {
+            // Order polling should still work even if the LOV endpoint is temporarily unavailable.
+        } finally {
+            orderTypesLoaded = true;
+        }
+    }
+
     static List<KitchenOrder> convert(List<KitchenTemporaryOrdersApiClient.Candidate> candidates, String posCode) {
+        return convert(candidates, posCode, new HashMap<>());
+    }
+
+    static List<KitchenOrder> convert(
+            List<KitchenTemporaryOrdersApiClient.Candidate> candidates,
+            String posCode,
+            Map<Long, String> orderTypes
+    ) {
         ArrayList<KitchenOrder> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         if (candidates == null) return result;
@@ -129,11 +168,17 @@ public final class KitchenCloudOrdersPoller {
             if (number.isEmpty() || seen.contains(number)) continue;
             if (!clean(posCode).isEmpty() && !clean(c.posCode).isEmpty()
                     && !clean(posCode).equalsIgnoreCase(clean(c.posCode))) continue;
+
             KitchenOrder order = new KitchenOrder();
             order.displayNumber = number;
             order.id = "invoice-" + number;
             order.table = normalizeTable(c.table);
-            order.orderType = normalizeOrderType(c.orderType, c.orderTypeId);
+            String typeName = clean(c.orderType);
+            if (typeName.isEmpty() && c.orderTypeId > 0L && orderTypes != null) {
+                String mapped = orderTypes.get(c.orderTypeId);
+                if (mapped != null) typeName = mapped;
+            }
+            order.orderType = normalizeOrderType(typeName);
             order.customerNote = clean(c.note);
             order.paymentStatus = "UNPAID";
             order.temporaryOrder = true;
@@ -149,7 +194,6 @@ public final class KitchenCloudOrdersPoller {
                 item.name = clean(source.name);
                 order.items.add(item);
             }
-            // A temp order without item rows is not useful to a KDS and often represents a wrapper object.
             if (order.items.isEmpty()) continue;
             seen.add(number);
             result.add(order);
@@ -157,12 +201,31 @@ public final class KitchenCloudOrdersPoller {
         return result;
     }
 
-    private static String normalizeOrderType(String raw, long id) {
+    private static void collectOrderTypes(Object raw, Map<Long, String> output, int depth) {
+        if (raw == null || raw == JSONObject.NULL || depth > 10) return;
+        Object value = structured(raw);
+        if (value instanceof JSONArray) {
+            JSONArray array = (JSONArray) value;
+            for (int i = 0; i < array.length(); i++) collectOrderTypes(array.opt(i), output, depth + 1);
+            return;
+        }
+        if (!(value instanceof JSONObject)) return;
+        JSONObject object = (JSONObject) value;
+        long id = longValue(object, "id", "Id", "value", "Value", "code", "Code", "lovId");
+        String name = text(object, "nameAr", "NameAr", "name", "Name", "descriptionAr", "description", "label", "title");
+        if (id > 0L && !name.isEmpty()) output.put(id, name);
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) collectOrderTypes(object.opt(keys.next()), output, depth + 1);
+    }
+
+    private static String normalizeOrderType(String raw) {
         String normalized = KitchenSignalV2.normalizeOrderType(raw);
         if (!normalized.isEmpty()) return normalized;
-        // Common TechPro order-type IDs are intentionally not guessed here. If API returns only an id,
-        // expose a stable token instead of showing an incorrect Local/Takeaway label.
-        return id > 0L ? "TYPE_" + id : "";
+        String value = clean(raw).toLowerCase(Locale.US);
+        if (value.contains("محلي") || value.contains("صالة") || value.contains("dine") || value.contains("local")) return "DINE_IN";
+        if (value.contains("سفري") || value.contains("take") || value.contains("pickup")) return "TAKEAWAY";
+        if (value.contains("توصيل") || value.contains("delivery")) return "DELIVERY";
+        return clean(raw);
     }
 
     private static String normalizeTable(String value) {
@@ -171,10 +234,61 @@ public final class KitchenCloudOrdersPoller {
         return table;
     }
 
+    private static Object structured(Object raw) {
+        Object value = raw;
+        for (int i = 0; i < 4; i++) {
+            if (value instanceof JSONObject || value instanceof JSONArray) return value;
+            if (!(value instanceof String)) return value;
+            String text = ((String) value).trim();
+            if (text.isEmpty()) return value;
+            try { value = new JSONTokener(text).nextValue(); }
+            catch (Exception ignored) { return value; }
+        }
+        return value;
+    }
+
+    private static Object value(JSONObject object, String requested) {
+        if (object == null) return null;
+        if (object.has(requested)) return object.opt(requested);
+        String wanted = normalizeKey(requested);
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (normalizeKey(key).equals(wanted)) return object.opt(key);
+        }
+        return null;
+    }
+
+    private static long longValue(JSONObject object, String... keys) {
+        for (String key : keys) {
+            Object raw = value(object, key);
+            if (raw == null || raw == JSONObject.NULL) continue;
+            try { return raw instanceof Number ? ((Number) raw).longValue() : Long.parseLong(String.valueOf(raw).trim()); }
+            catch (Exception ignored) { }
+        }
+        return 0L;
+    }
+
+    private static String text(JSONObject object, String... keys) {
+        for (String key : keys) {
+            Object raw = value(object, key);
+            if (raw == null || raw == JSONObject.NULL || raw instanceof JSONArray || raw instanceof JSONObject) continue;
+            String result = clean(String.valueOf(raw));
+            if (!result.isEmpty() && !result.equalsIgnoreCase("null")) return result;
+        }
+        return "";
+    }
+
+    private static String normalizeKey(String value) {
+        return clean(value).toLowerCase(Locale.US).replace("_", "").replace("-", "").replace(" ", "");
+    }
+
     private static String stripBearer(String value) {
         String token = clean(value);
         return token.toLowerCase(Locale.US).startsWith("bearer ") ? token.substring(7).trim() : token;
     }
 
     private static String clean(String value) { return value == null ? "" : value.trim(); }
+
+    private static final class Unauthorized extends Exception { }
 }
