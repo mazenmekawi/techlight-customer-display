@@ -4,26 +4,27 @@ on:
     branches: [ techpro-kitchen-v1 ]
   workflow_dispatch:
 jobs:
-  build-analyzer:
+  prepare-analyzer:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.4'
-          cache: false
-      - name: Clone and build unflutter
+      - name: Download flutterdec Linux release
         run: |
           set -euxo pipefail
-          rm -rf /tmp/unflutter-src
-          git clone --depth 1 https://github.com/zboralski/unflutter.git /tmp/unflutter-src
-          cd /tmp/unflutter-src
-          go build -trimpath -o /tmp/unflutter ./cmd/unflutter
-          /tmp/unflutter --help > /tmp/unflutter-help.txt 2>&1 || true
-          sha256sum /tmp/unflutter > /tmp/unflutter.sha256
+          mkdir -p /tmp/flutterdec-release
+          curl --fail --location --retry 3 \
+            https://github.com/caverav/flutterdec/releases/download/v0.1.0-alpha.4/flutterdec-v0.1.0-alpha.4-Linux-X64.tar.gz \
+            --output /tmp/flutterdec.tar.gz
+          tar -xzf /tmp/flutterdec.tar.gz -C /tmp/flutterdec-release
+          BIN="$(find /tmp/flutterdec-release -type f -name flutterdec | head -n 1)"
+          test -n "$BIN"
+          chmod +x "$BIN"
+          cp "$BIN" /tmp/flutterdec
+          /tmp/flutterdec --help > /tmp/flutterdec-help.txt 2>&1
+          sha256sum /tmp/flutterdec > /tmp/flutterdec.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: unflutter-linux-amd64
+          name: flutterdec-linux-x64
           path: |
-            /tmp/unflutter
-            /tmp/unflutter-help.txt
-            /tmp/unflutter.sha256
+            /tmp/flutterdec
+            /tmp/flutterdec-help.txt
+            /tmp/flutterdec.sha256
