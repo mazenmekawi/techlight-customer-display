@@ -1,0 +1,37 @@
+name: Build r2flutter Analyzer
+on:
+  push:
+    branches: [ techpro-kitchen-v1 ]
+  workflow_dispatch:
+jobs:
+  build-r2flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build radare2 and r2flutter
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config python3 git
+          rm -rf /tmp/radare2 /tmp/r2flutter /tmp/r2prefix /tmp/r2flutter-bundle
+          git clone --depth 1 https://github.com/radareorg/radare2.git /tmp/radare2
+          cd /tmp/radare2
+          ./sys/install.sh --without-pull --install --prefix=/tmp/r2prefix
+          export PATH=/tmp/r2prefix/bin:$PATH
+          export LD_LIBRARY_PATH=/tmp/r2prefix/lib:/tmp/r2prefix/lib64:${LD_LIBRARY_PATH:-}
+          r2 -v
+          git clone --depth 1 https://github.com/radareorg/r2flutter.git /tmp/r2flutter
+          cd /tmp/r2flutter
+          make -j2 PREFIX=/tmp/r2prefix
+          ./bin/r2flutter -h > /tmp/r2flutter-help.txt 2>&1
+          mkdir -p /tmp/r2flutter-bundle
+          cp -a /tmp/r2prefix /tmp/r2flutter-bundle/r2prefix
+          cp /tmp/r2flutter/bin/r2flutter /tmp/r2flutter-bundle/r2flutter
+          cp /tmp/r2flutter-help.txt /tmp/r2flutter-bundle/
+          tar -C /tmp -czf /tmp/r2flutter-linux-x64.tar.gz r2flutter-bundle
+          sha256sum /tmp/r2flutter-linux-x64.tar.gz > /tmp/r2flutter-linux-x64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r2flutter-linux-x64
+          path: |
+            /tmp/r2flutter-linux-x64.tar.gz
+            /tmp/r2flutter-linux-x64.sha256

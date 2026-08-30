@@ -57,7 +57,9 @@ public final class ProductImageLoader {
     public void load(String rawPath, ImageView target, Runnable onLoaded) {
         String key = ProductCatalog.clean(rawPath);
         target.setTag(key);
-        target.setVisibility(View.GONE);
+        // Preserve a bundled fallback drawable (used by the website brand mark) while network loading.
+        if (target.getDrawable() == null) target.setVisibility(View.GONE);
+        else target.setVisibility(View.VISIBLE);
         if (key.isEmpty()) return;
 
         Bitmap cached;
@@ -107,7 +109,7 @@ public final class ProductImageLoader {
                 if (length > MAX_IMAGE_BYTES) return null;
                 byte[] bytes = response.body().bytes();
                 if (bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) return null;
-                return decodeSampled(bytes, 420, 420);
+                return decodeSampled(bytes, 900, 900);
             }
         } catch (Throwable ignored) {
             return null;
@@ -121,7 +123,7 @@ public final class ProductImageLoader {
         try {
             byte[] bytes = Base64.decode(value.substring(comma + 1), Base64.DEFAULT);
             if (bytes.length > MAX_IMAGE_BYTES) return null;
-            return decodeSampled(bytes, 420, 420);
+            return decodeSampled(bytes, 900, 900);
         } catch (Throwable ignored) {
             return null;
         }
@@ -139,7 +141,7 @@ public final class ProductImageLoader {
         }
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = Math.max(1, sample);
-        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
     }
 
