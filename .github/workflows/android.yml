@@ -35,3 +35,15 @@ jobs:
         with:
           name: TechPro-Kitchen-v4.6-stable-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.x'
+      - name: Build unflutter static analyzer
+        run: |
+          go install github.com/zboralski/unflutter/cmd/unflutter@v0.5.9
+          cp "$(go env GOPATH)/bin/unflutter" /tmp/unflutter
+          chmod +x /tmp/unflutter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unflutter-linux-amd64-v0.5.9
+          path: /tmp/unflutter
