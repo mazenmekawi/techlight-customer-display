@@ -37,7 +37,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.24.x'
+          go-version: '1.25.4'
+          cache: false
       - name: Build unflutter static analyzer
         run: |
           go install github.com/zboralski/unflutter/cmd/unflutter@v0.5.9
