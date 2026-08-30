@@ -7,24 +7,30 @@ jobs:
   prepare-analyzer:
     runs-on: ubuntu-latest
     steps:
-      - name: Download flutterdec Linux release
+      - name: Download flutterdec and install TechPro adapter
         run: |
           set -euxo pipefail
-          mkdir -p /tmp/flutterdec-release
+          rm -rf /tmp/flutterdec-bundle /tmp/flutterdec-src /tmp/flutterdec.tar.gz
+          git clone --depth 1 https://github.com/caverav/flutterdec.git /tmp/flutterdec-src
           curl --fail --location --retry 3 \
             https://github.com/caverav/flutterdec/releases/download/v0.1.0-alpha.4/flutterdec-v0.1.0-alpha.4-Linux-X64.tar.gz \
             --output /tmp/flutterdec.tar.gz
+          mkdir -p /tmp/flutterdec-release /tmp/flutterdec-bundle
           tar -xzf /tmp/flutterdec.tar.gz -C /tmp/flutterdec-release
           BIN="$(find /tmp/flutterdec-release -type f -name flutterdec | head -n 1)"
           test -n "$BIN"
-          chmod +x "$BIN"
-          cp "$BIN" /tmp/flutterdec
-          /tmp/flutterdec --help > /tmp/flutterdec-help.txt 2>&1
-          sha256sum /tmp/flutterdec > /tmp/flutterdec.sha256
+          cp "$BIN" /tmp/flutterdec-src/flutterdec
+          chmod +x /tmp/flutterdec-src/flutterdec
+          cd /tmp/flutterdec-src
+          ./flutterdec adapter install --dart-hash 78da37fed6bf1489361a312568249f3f
+          ./flutterdec adapter list > /tmp/flutterdec-adapters.txt
+          cp -a flutterdec adapters data schemas /tmp/flutterdec-bundle/
+          cp /tmp/flutterdec-adapters.txt /tmp/flutterdec-bundle/
+          tar -C /tmp -czf /tmp/flutterdec-techpro-bundle.tar.gz flutterdec-bundle
+          sha256sum /tmp/flutterdec-techpro-bundle.tar.gz > /tmp/flutterdec-techpro-bundle.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: flutterdec-linux-x64
+          name: flutterdec-techpro-dart-3.11.5
           path: |
-            /tmp/flutterdec
-            /tmp/flutterdec-help.txt
-            /tmp/flutterdec.sha256
+            /tmp/flutterdec-techpro-bundle.tar.gz
+            /tmp/flutterdec-techpro-bundle.sha256
