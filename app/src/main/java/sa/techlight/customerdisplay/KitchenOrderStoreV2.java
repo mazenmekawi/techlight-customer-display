@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -13,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
-/** Durable kitchen queue with fixed lifecycle timestamps and bounded history retention. */
+/** Durable kitchen queue with fixed lifecycle timestamps, account isolation and bounded history retention. */
 public final class KitchenOrderStoreV2 {
     private static final String PREF = "techpro_kitchen_queue_v2";
     private static final int MAX_HISTORY = 1500;
@@ -25,7 +27,17 @@ public final class KitchenOrderStoreV2 {
     private final ArrayList<KitchenOrder> history = new ArrayList<>();
 
     public KitchenOrderStoreV2(Context context) {
-        preferences = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        this(context, "");
+    }
+
+    /**
+     * Scope isolates active/history data by TechPro POS account so changing login can never surface
+     * a ticket left behind by another point/user. Old unscoped V4 data is deliberately not migrated.
+     */
+    public KitchenOrderStoreV2(Context context, String scope) {
+        String cleanScope = clean(scope);
+        String name = cleanScope.isEmpty() ? PREF : PREF + "_" + scopeKey(cleanScope);
+        preferences = context.getSharedPreferences(name, Context.MODE_PRIVATE);
         load();
     }
 
@@ -58,10 +70,6 @@ public final class KitchenOrderStoreV2 {
         return null;
     }
 
-    /**
-     * Returns a recent temporary ticket that is safe to promote to the supplied real invoice.
-     * Matching is deliberately strict: same recent cart items/quantities, with compatible table/type metadata.
-     */
     public synchronized KitchenOrder findPromotableWeak(KitchenOrder incoming) {
         return findPromotableWeak(incoming, DEFAULT_PROMOTION_WINDOW_MS);
     }
@@ -80,8 +88,6 @@ public final class KitchenOrderStoreV2 {
         long now = System.currentTimeMillis();
         KitchenOrder previous = active.get(id);
 
-        // A cart-clear fallback can create a weak temporary ticket a moment before TechPro sends
-        // the real saved invoice number. Promote that exact ticket instead of showing a duplicate.
         if (previous == null && isStrongId(id) && !incoming.items.isEmpty()) {
             String weakKey = promotableWeakKey(incoming, now, DEFAULT_PROMOTION_WINDOW_MS);
             if (!weakKey.isEmpty()) {
@@ -90,7 +96,7 @@ public final class KitchenOrderStoreV2 {
                     KitchenOrder promoted = promote(weak, incoming, id, now);
                     active.put(id, promoted);
                     persist();
-                    return !weak.contentSignature().equals(promoted.contentSignature());
+                    return materiallyDifferent(weak, promoted);
                 }
             }
         }
@@ -109,15 +115,15 @@ public final class KitchenOrderStoreV2 {
         }
 
         KitchenOrder merged = mergeExisting(previous, incoming, now);
-        boolean changed = !previous.contentSignature().equals(merged.contentSignature());
+        boolean changed = materiallyDifferent(previous, merged);
+        if (!changed) return false; // no disk write and no UI invalidation for identical cloud polls.
         active.put(id, merged);
         persist();
-        return changed;
+        return true;
     }
 
     private KitchenOrder mergeExisting(KitchenOrder previous, KitchenOrder incoming, long now) {
         KitchenOrder merged = previous.copy();
-        String before = merged.contentSignature();
         if (KitchenSignalV2.valid(incoming.displayNumber)) merged.displayNumber = incoming.displayNumber;
         if (!clean(incoming.table).isEmpty()) merged.table = incoming.table;
         if (!clean(incoming.orderType).isEmpty()) merged.orderType = incoming.orderType;
@@ -128,13 +134,19 @@ public final class KitchenOrderStoreV2 {
             merged.items.clear();
             for (KitchenOrder.Item item : incoming.items) merged.items.add(KitchenOrder.copyItem(item));
         }
-        String after = merged.contentSignature();
-        boolean changed = !before.equals(after);
-        merged.updatedAt = now;
-        merged.revision = Math.max(previous.revision + (changed ? 1 : 0), incoming.revision);
-        if (changed) merged.changedAt = now;
+        boolean changed = materiallyDifferent(previous, merged);
+        if (changed) {
+            merged.updatedAt = now;
+            merged.changedAt = now;
+            merged.revision = Math.max(previous.revision + 1, incoming.revision);
+        } else {
+            merged.updatedAt = previous.updatedAt;
+            merged.changedAt = previous.changedAt;
+            merged.revision = previous.revision;
+        }
         merged.inferredTemporarySave = previous.inferredTemporarySave || incoming.inferredTemporarySave;
-        merged.temporaryOrder = previous.temporaryOrder || incoming.temporaryOrder;
+        merged.temporaryOrder = incoming.rawStatus != null && incoming.rawStatus.equals("POS_INVOICE")
+                ? false : (previous.temporaryOrder || incoming.temporaryOrder);
         return merged;
     }
 
@@ -153,10 +165,20 @@ public final class KitchenOrderStoreV2 {
         }
         promoted.updatedAt = now;
         promoted.revision = Math.max(weak.revision, incoming.revision);
-        promoted.temporaryOrder = true;
+        promoted.temporaryOrder = incoming.rawStatus != null && incoming.rawStatus.equals("POS_INVOICE")
+                ? false : true;
         promoted.inferredTemporarySave = weak.inferredTemporarySave || incoming.inferredTemporarySave;
-        // Preserve NEW/PREPARING/READY and the original receive/start times from the weak ticket.
         return promoted;
+    }
+
+    private static boolean materiallyDifferent(KitchenOrder a, KitchenOrder b) {
+        if (a == b) return false;
+        if (a == null || b == null) return true;
+        if (!clean(a.displayNumber).equals(clean(b.displayNumber))) return true;
+        if (!clean(a.paymentStatus).equals(clean(b.paymentStatus))) return true;
+        if (!clean(a.rawStatus).equals(clean(b.rawStatus))) return true;
+        if (a.temporaryOrder != b.temporaryOrder) return true;
+        return !a.contentSignature().equals(b.contentSignature());
     }
 
     private String promotableWeakKey(KitchenOrder incoming, long now, long maxAgeMs) {
@@ -187,7 +209,6 @@ public final class KitchenOrderStoreV2 {
         String ta = normalized(a.table);
         String tb = normalized(b.table);
         if (!ta.isEmpty() && !tb.isEmpty() && !ta.equals(tb)) return false;
-
         String oa = normalizedType(a.orderType);
         String ob = normalizedType(b.orderType);
         return oa.isEmpty() || ob.isEmpty() || oa.equals(ob);
@@ -206,9 +227,7 @@ public final class KitchenOrderStoreV2 {
     private static ArrayList<String> cartFingerprints(List<KitchenOrder.Item> items) {
         ArrayList<String> out = new ArrayList<>();
         for (KitchenOrder.Item item : items) {
-            String identity;
-            if (item.itemId > 0L) identity = "id:" + item.itemId;
-            else identity = "name:" + normalized(item.name);
+            String identity = item.itemId > 0L ? "id:" + item.itemId : "name:" + normalized(item.name);
             String qty = String.format(Locale.US, "%.3f", item.qty);
             out.add(identity + "|q:" + qty);
         }
@@ -239,7 +258,9 @@ public final class KitchenOrderStoreV2 {
     public synchronized void updatePayment(String id, String payment) {
         KitchenOrder order = active.get(KitchenSignalV2.cleanIdentity(id));
         if (order == null) return;
-        order.paymentStatus = clean(payment).isEmpty() ? "PAID" : payment;
+        String next = clean(payment).isEmpty() ? "PAID" : payment;
+        if (next.equals(clean(order.paymentStatus))) return;
+        order.paymentStatus = next;
         order.updatedAt = System.currentTimeMillis();
         persist();
     }
@@ -250,9 +271,7 @@ public final class KitchenOrderStoreV2 {
         long now = System.currentTimeMillis();
         order.kitchenStatus = status;
         order.updatedAt = now;
-        if (status == KitchenOrder.Status.PREPARING && order.startedAt <= 0L) {
-            order.startedAt = now;
-        }
+        if (status == KitchenOrder.Status.PREPARING && order.startedAt <= 0L) order.startedAt = now;
         if (status == KitchenOrder.Status.READY && order.readyAt <= 0L) {
             if (order.startedAt <= 0L) order.startedAt = now;
             order.readyAt = now;
@@ -296,21 +315,9 @@ public final class KitchenOrderStoreV2 {
         return result;
     }
 
-    public synchronized void clearActive() {
-        active.clear();
-        persist();
-    }
-
-    public synchronized void clearHistory() {
-        history.clear();
-        persist();
-    }
-
-    public synchronized void clearAll() {
-        active.clear();
-        history.clear();
-        persist();
-    }
+    public synchronized void clearActive() { active.clear(); persist(); }
+    public synchronized void clearHistory() { history.clear(); persist(); }
+    public synchronized void clearAll() { active.clear(); history.clear(); persist(); }
 
     private void load() {
         active.clear();
@@ -347,9 +354,7 @@ public final class KitchenOrderStoreV2 {
         } catch (Exception ignored) { }
     }
 
-    private void trimHistory(long now) {
-        pruneHistory(now);
-    }
+    private void trimHistory(long now) { pruneHistory(now); }
 
     private boolean pruneHistory(long now) {
         boolean changed = false;
@@ -375,7 +380,16 @@ public final class KitchenOrderStoreV2 {
         return result;
     }
 
-    private static String clean(String value) {
-        return value == null ? "" : value.trim();
+    private static String scopeKey(String scope) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(scope.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < 8; i++) out.append(String.format(Locale.US, "%02x", digest[i] & 0xff));
+            return out.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(scope.hashCode());
+        }
     }
+
+    private static String clean(String value) { return value == null ? "" : value.trim(); }
 }
