@@ -30,30 +30,10 @@ jobs:
         run: python3 scripts/finalize_kitchen_v45.py
       - name: Apply login baseline and no-flicker deltas
         run: python3 scripts/finalize_kitchen_v46.py
+      - name: Auto-detect TechPro API and merge order feeds
+        run: python3 scripts/finalize_kitchen_v47.py
       - run: gradle testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: TechPro-Kitchen-v4.6-stable-debug
+          name: TechPro-Kitchen-v4.7-dual-api-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.4'
-          cache: false
-      - name: Build unflutter static analyzer
-        run: |
-          rm -rf /tmp/unflutter-src /tmp/unflutter.tar.gz
-          curl --fail --location --retry 3 \
-            https://codeload.github.com/turingH/unflutter-iOS/tar.gz/refs/heads/main \
-            --output /tmp/unflutter.tar.gz
-          mkdir -p /tmp/unflutter-src
-          tar -xzf /tmp/unflutter.tar.gz --strip-components=1 -C /tmp/unflutter-src
-          cd /tmp/unflutter-src
-          go build -o /tmp/unflutter ./cmd/unflutter
-          chmod +x /tmp/unflutter
-          /tmp/unflutter --help >/tmp/unflutter-help.txt 2>&1 || true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: unflutter-linux-amd64
-          path: |
-            /tmp/unflutter
-            /tmp/unflutter-help.txt
