@@ -8,7 +8,9 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -27,8 +29,8 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Cloud-first KDS transport. It does not need the cashier LAN websocket.
- * It polls the same TemporaryOrders endpoint embedded in the official TechPro POS app.
+ * Cloud-first KDS transport using the operational API embedded in the official TechPro POS APK.
+ * TemporaryOrders handles parked orders; PosInvoice contributes newly paid/direct invoices.
  */
 public final class KitchenCloudOrdersPoller {
     public interface Listener {
@@ -37,9 +39,13 @@ public final class KitchenCloudOrdersPoller {
         void onUnauthorized();
     }
 
-    static final String ENDPOINT = "https://posapifornewapp.techlight.sa/api/TemporaryOrders?Page=1&PageSize=300";
-    static final String ORDER_TYPES_ENDPOINT = "https://posapifornewapp.techlight.sa/api/ErpLov/168";
+    static final String API = "https://posapi.techlight.sa/api/";
+    static final String TEMP_LIST_ENDPOINT = API + "TemporaryOrders/List";
+    static final String TEMP_ENDPOINT = API + "TemporaryOrders";
+    static final String ORDER_TYPES_ENDPOINT = API + "ErpLov/168";
+    static final String POS_INVOICE_ENDPOINT = API + "PosInvoice";
     private static final long POLL_MS = 2000L;
+    private static final long RECENT_BASELINE_WINDOW_MS = 120_000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -53,7 +59,10 @@ public final class KitchenCloudOrdersPoller {
     private final String posCode;
     private final Listener listener;
     private final HashMap<Long, String> orderTypeNames = new HashMap<>();
+    private final HashSet<String> seenPaidInvoices = new HashSet<>();
+    private final long startedAt = System.currentTimeMillis();
     private volatile boolean orderTypesLoaded;
+    private volatile boolean invoiceBaselineReady;
     private volatile boolean running;
 
     private final Runnable tick = new Runnable() {
@@ -91,15 +100,31 @@ public final class KitchenCloudOrdersPoller {
         long started = System.currentTimeMillis();
         try {
             if (!orderTypesLoaded) loadOrderTypes();
-            String raw = executeGet(ENDPOINT);
-            List<KitchenTemporaryOrdersApiClient.Candidate> candidates = KitchenTemporaryOrdersApiClient.parseCandidates(raw);
-            List<KitchenOrder> orders = convert(candidates, posCode, orderTypeNames);
+
+            String tempRaw = fetchTemporaryOrders();
+            List<KitchenTemporaryOrdersApiClient.Candidate> tempCandidates = KitchenTemporaryOrdersApiClient.parseCandidates(tempRaw);
+            List<KitchenOrder> temporary = convertTemporary(tempCandidates, posCode, orderTypeNames);
+
+            ArrayList<KitchenOrder> combined = new ArrayList<>(temporary);
+            int paidNew = 0;
+            String invoiceDetail = "invoice=ok";
+            try {
+                List<KitchenOrder> newPaid = fetchNewPaidInvoices();
+                paidNew = newPaid.size();
+                combined.addAll(newPaid);
+            } catch (Unauthorized unauthorized) {
+                throw unauthorized;
+            } catch (Throwable invoiceError) {
+                invoiceDetail = "invoice=" + invoiceError.getClass().getSimpleName();
+            }
+
             long elapsed = System.currentTimeMillis() - started;
-            String detail = "Cloud • " + orders.size() + " active • " + elapsed + "ms";
+            String detail = "Cloud official API • temp=" + temporary.size() + " • paidNew=" + paidNew
+                    + " • " + invoiceDetail + " • " + elapsed + "ms";
             main.post(() -> {
                 if (!running || listener == null) return;
                 listener.onStatus("Cloud connected", true);
-                listener.onSnapshot(orders, detail);
+                listener.onSnapshot(combined, detail);
             });
         } catch (Unauthorized unauthorized) {
             main.post(() -> {
@@ -108,13 +133,105 @@ public final class KitchenCloudOrdersPoller {
                 listener.onUnauthorized();
             });
         } catch (Throwable error) {
-            String detail = "Cloud retry • " + error.getClass().getSimpleName();
+            String detail = "Cloud retry • " + error.getClass().getSimpleName() + " • " + clean(error.getMessage());
             main.post(() -> {
                 if (running && listener != null) listener.onStatus(detail, false);
             });
         } finally {
             requestRunning.set(false);
         }
+    }
+
+    private String fetchTemporaryOrders() throws Exception {
+        try {
+            return executeGet(TEMP_LIST_ENDPOINT);
+        } catch (Unauthorized unauthorized) {
+            throw unauthorized;
+        } catch (Exception listError) {
+            try {
+                return executeGet(TEMP_ENDPOINT);
+            } catch (Unauthorized unauthorized) {
+                throw unauthorized;
+            } catch (Exception baseError) {
+                HttpUrl paged = HttpUrl.get(TEMP_ENDPOINT).newBuilder()
+                        .addQueryParameter("Page", "1")
+                        .addQueryParameter("PageSize", "300")
+                        .build();
+                return executeGet(paged.toString());
+            }
+        }
+    }
+
+    private List<KitchenOrder> fetchNewPaidInvoices() throws Exception {
+        String day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        HttpUrl url = HttpUrl.get(POS_INVOICE_ENDPOINT).newBuilder()
+                .addQueryParameter("FromDate", day)
+                .addQueryParameter("ToDate", day)
+                .build();
+        String raw = executeGet(url.toString());
+        List<KitchenPosInvoiceParser.Candidate> candidates = KitchenPosInvoiceParser.parse(raw);
+        List<KitchenOrder> invoices = KitchenPosInvoiceParser.convert(candidates, posCode);
+
+        ArrayList<KitchenOrder> delta = new ArrayList<>();
+        if (!invoiceBaselineReady) {
+            for (KitchenOrder invoice : invoices) {
+                String number = invoice.bestNumber();
+                if (!number.isEmpty()) seenPaidInvoices.add(number);
+                if (invoice.createdAt > 0L && invoice.createdAt >= startedAt - RECENT_BASELINE_WINDOW_MS) {
+                    KitchenOrder hydrated = hydrateInvoice(invoice, candidates);
+                    if (hydrated != null && !hydrated.items.isEmpty()) delta.add(hydrated);
+                }
+            }
+            invoiceBaselineReady = true;
+            return delta;
+        }
+
+        for (KitchenOrder invoice : invoices) {
+            String number = invoice.bestNumber();
+            if (number.isEmpty() || !seenPaidInvoices.add(number)) continue;
+            KitchenOrder hydrated = hydrateInvoice(invoice, candidates);
+            if (hydrated != null) delta.add(hydrated);
+        }
+        return delta;
+    }
+
+    private KitchenOrder hydrateInvoice(KitchenOrder header, List<KitchenPosInvoiceParser.Candidate> candidates) {
+        if (header == null) return null;
+        if (!header.items.isEmpty()) return resolveTypeName(header);
+        String number = header.bestNumber();
+        String lookup = number;
+        if (candidates != null) for (KitchenPosInvoiceParser.Candidate c : candidates) {
+            if (c != null && number.equals(c.usableNumber()) && !clean(c.code).isEmpty()) {
+                lookup = c.code;
+                break;
+            }
+        }
+        if (clean(lookup).isEmpty()) return resolveTypeName(header);
+        try {
+            HttpUrl detailUrl = HttpUrl.get(POS_INVOICE_ENDPOINT).newBuilder()
+                    .addQueryParameter("InvoiceCode", lookup)
+                    .build();
+            List<KitchenOrder> detail = KitchenPosInvoiceParser.convert(
+                    KitchenPosInvoiceParser.parse(executeGet(detailUrl.toString())), posCode
+            );
+            for (KitchenOrder candidate : detail) {
+                if (number.equals(candidate.bestNumber()) || detail.size() == 1) return resolveTypeName(candidate);
+            }
+        } catch (Throwable ignored) { }
+        return resolveTypeName(header);
+    }
+
+    private KitchenOrder resolveTypeName(KitchenOrder order) {
+        if (order == null) return null;
+        String raw = clean(order.orderType);
+        if (raw.startsWith("TYPE_")) {
+            try {
+                long id = Long.parseLong(raw.substring(5));
+                String name = orderTypeNames.get(id);
+                if (!clean(name).isEmpty()) order.orderType = normalizeOrderType(name);
+            } catch (Exception ignored) { }
+        }
+        return order;
     }
 
     private String executeGet(String url) throws Exception {
@@ -132,7 +249,7 @@ public final class KitchenCloudOrdersPoller {
         }
     }
 
-    private void loadOrderTypes() {
+    private void loadOrderTypes() throws Unauthorized {
         try {
             String raw = executeGet(ORDER_TYPES_ENDPOINT);
             HashMap<Long, String> parsed = new HashMap<>();
@@ -142,19 +259,19 @@ public final class KitchenCloudOrdersPoller {
                 orderTypeNames.putAll(parsed);
             }
         } catch (Unauthorized unauthorized) {
-            throw new RuntimeException(unauthorized);
+            throw unauthorized;
         } catch (Throwable ignored) {
-            // Order polling should still work even if the LOV endpoint is temporarily unavailable.
+            // Orders still work if LOV is temporarily unavailable; raw type metadata remains visible.
         } finally {
             orderTypesLoaded = true;
         }
     }
 
     static List<KitchenOrder> convert(List<KitchenTemporaryOrdersApiClient.Candidate> candidates, String posCode) {
-        return convert(candidates, posCode, new HashMap<>());
+        return convertTemporary(candidates, posCode, new HashMap<>());
     }
 
-    static List<KitchenOrder> convert(
+    static List<KitchenOrder> convertTemporary(
             List<KitchenTemporaryOrdersApiClient.Candidate> candidates,
             String posCode,
             Map<Long, String> orderTypes
@@ -181,6 +298,7 @@ public final class KitchenCloudOrdersPoller {
             order.orderType = normalizeOrderType(typeName);
             order.customerNote = clean(c.note);
             order.paymentStatus = "UNPAID";
+            order.rawStatus = "TEMPORARY";
             order.temporaryOrder = true;
             if (c.orderDate > 0L) {
                 order.createdAt = c.orderDate;
