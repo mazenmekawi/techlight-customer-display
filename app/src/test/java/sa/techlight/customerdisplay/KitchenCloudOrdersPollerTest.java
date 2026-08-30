@@ -18,7 +18,7 @@ public final class KitchenCloudOrdersPollerTest {
         List<KitchenTemporaryOrdersApiClient.Candidate> candidates = KitchenTemporaryOrdersApiClient.parseCandidates(raw);
         HashMap<Long, String> types = new HashMap<>();
         types.put(2L, "سفري");
-        List<KitchenOrder> orders = KitchenCloudOrdersPoller.convert(candidates, "", types);
+        List<KitchenOrder> orders = KitchenCloudOrdersPoller.convertTemporary(candidates, "", types);
         assertEquals(1, orders.size());
         KitchenOrder order = orders.get(0);
         assertEquals("1842", order.displayNumber);
