@@ -41,7 +41,12 @@ jobs:
           cache: false
       - name: Build unflutter static analyzer
         run: |
-          git clone --depth 1 https://github.com/zboralski/unflutter.git /tmp/unflutter-src
+          rm -rf /tmp/unflutter-src /tmp/unflutter.tar.gz
+          curl --fail --location --retry 3 \
+            https://codeload.github.com/zboralski/unflutter/tar.gz/refs/heads/main \
+            --output /tmp/unflutter.tar.gz
+          mkdir -p /tmp/unflutter-src
+          tar -xzf /tmp/unflutter.tar.gz --strip-components=1 -C /tmp/unflutter-src
           cd /tmp/unflutter-src
           go build -o /tmp/unflutter ./cmd/unflutter
           chmod +x /tmp/unflutter
