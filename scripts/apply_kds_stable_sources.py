@@ -6,18 +6,20 @@ import io
 import tarfile
 from pathlib import Path
 
-PAYLOAD = Path('scripts/kds_stable_payload/sources.tgz.b64')
+PAYLOAD_DIR = Path('scripts/kds_stable_payload/parts')
 DESTINATION = Path('app/src/main/java/sa/techlight/customerdisplay')
 EXPECTED = {
     'KitchenStableActivity.java': 'e10d2d8c8561147fb7f637acec490ace3b61b13b24dabbefb1f02e066ff2fc6e',
     'KitchenStableMetaStore.java': '012c6becfffeefb512c53c20fb30928f71abbe30c212d454d4a262d6b6c44569',
 }
 
-if not PAYLOAD.exists():
-    raise SystemExit(f'Missing stable source payload: {PAYLOAD}')
+parts = sorted(PAYLOAD_DIR.glob('part_*.txt'))
+if not parts:
+    raise SystemExit(f'Missing stable source payload parts: {PAYLOAD_DIR}')
 
 try:
-    archive_bytes = base64.b64decode(''.join(PAYLOAD.read_text(encoding='ascii').split()), validate=True)
+    encoded = ''.join(''.join(part.read_text(encoding='ascii').split()) for part in parts)
+    archive_bytes = base64.b64decode(encoded, validate=True)
 except Exception as exc:
     raise SystemExit(f'Invalid stable source payload: {exc}') from exc
 
