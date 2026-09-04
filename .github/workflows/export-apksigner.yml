@@ -1,0 +1,35 @@
+name: Export Android APK signing tools
+
+on:
+  push:
+    branches: [ kds-v67-exact-apk-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Package apksigner and zipalign
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -n "$BT"
+          mkdir -p dist/lib
+          cp "$BT/apksigner" dist/
+          cp "$BT/zipalign" dist/
+          cp "$BT/lib/apksigner.jar" dist/lib/
+          chmod +x dist/apksigner dist/zipalign
+          "$BT/apksigner" version | tee dist/version.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apksigner-tools
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
