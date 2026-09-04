@@ -1,0 +1,47 @@
+name: KDS API Contract Probe
+
+on:
+  push:
+    branches:
+      - kds-hybrid-voice-phase1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe public API contract without credentials
+        shell: bash
+        run: |
+          set +e
+          mkdir -p probe
+          urls=(
+            "https://ordertrackingapi.techlight.sa/"
+            "https://ordertrackingapi.techlight.sa/swagger/index.html"
+            "https://ordertrackingapi.techlight.sa/swagger/v1/swagger.json"
+            "https://ordertrackingapi.techlight.sa/swagger.json"
+            "https://ordertrackingapi.techlight.sa/api/PosDocMovement/GetAll"
+          )
+          for url in "${urls[@]}"; do
+            safe=$(echo "$url" | sed 's#https://##; s#[/:?&=]#_#g')
+            {
+              echo "URL: $url"
+              echo "=== HEADERS ==="
+              curl -kLsS -D - -o /dev/null --max-time 20 "$url"
+              echo "=== BODY ==="
+              curl -kLsS --max-time 20 "$url" | head -c 500000
+              echo
+              echo "=== OPTIONS ==="
+              curl -kLsS -X OPTIONS -D - -o - --max-time 20 "$url" | head -c 100000
+              echo
+            } > "probe/${safe}.txt" 2>&1
+          done
+          zip -qr kds-api-probe.zip probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kds-api-probe
+          path: kds-api-probe.zip
+          retention-days: 2

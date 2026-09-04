@@ -1,0 +1,38 @@
+name: KDS Pro Source Snapshot
+
+on:
+  push:
+    branches:
+      - kds-hybrid-voice-phase1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Finalize current KDS source
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+      - name: Archive transformed source
+        run: |
+          mkdir -p snapshot
+          cp -R app snapshot/app
+          cp -R scripts snapshot/scripts
+          cp settings.gradle build.gradle gradle.properties snapshot/ 2>/dev/null || true
+          zip -qr kds-pro-source-snapshot.zip snapshot
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kds-pro-source-snapshot
+          path: kds-pro-source-snapshot.zip
+          retention-days: 2
