@@ -1,0 +1,90 @@
+name: Build TechLight KDS Pro Final APK
+
+on:
+  push:
+    branches: [ kds-hybrid-voice-phase1 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kds-pro-final-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-final-pro-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate verified hybrid KDS baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Apply Pro production layers
+        run: |
+          python3 scripts/finalize_kitchen_pro.py
+          python3 scripts/finalize_kitchen_pro_v2.py
+
+      - name: Audit generated source
+        run: |
+          python3 -m py_compile scripts/finalize_kitchen_pro.py scripts/finalize_kitchen_pro_v2.py
+          grep -q 'versionName '\''5.0.0-pro'\''' app/build.gradle
+          grep -q 'KitchenLocalEnricher.enrich' app/src/main/java/sa/techlight/customerdisplay/KitchenActivityV42.java
+          grep -q 'KitchenItemMerger.merge' app/src/main/java/sa/techlight/customerdisplay/KitchenOrderStoreV2.java
+          grep -q 'KitchenVoiceController' app/src/main/java/sa/techlight/customerdisplay/KitchenActivityV42.java
+          grep -q 'historyCleanupDueAt' app/src/main/java/sa/techlight/customerdisplay/KitchenOrderStoreV2.java
+          grep -q 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
+
+      - name: Run tests and assemble APK
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Package final artifact
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TechLight-KDS-Pro-v5.0.0.apk
+          sha256sum dist/TechLight-KDS-Pro-v5.0.0.apk | tee dist/SHA256SUMS.txt
+          cat > dist/README-AR.txt <<'EOF'
+          TechLight KDS Pro v5.0.0
+
+          هذه نسخة اختبار إنتاجية مبنية على النسخة الهجينة الحالية، وتشمل:
+          - API + اتصال IP محلي في وقت واحد.
+          - استكمال المجموعات والإضافات من رسائل TechPro المحلية عند توفرها.
+          - اختيار مجموعة أو عدة مجموعات لكل شاشة.
+          - كشف الإضافات الجديدة على نفس الفاتورة مع تنبيه دائم حتى المراجعة.
+          - تسجيل الموظف وسجل الأحداث الحقيقي.
+          - عدادات مبنية على timestamps وترتيب ثابت ذكي.
+          - أوامر صوتية عربية وإنجليزية مع تأكيد قبل تغيير الحالات.
+          - دعم عبارة Hi TechPro اختيارياً.
+          - وضع تدريب منفصل لا يرسل أي بيانات حقيقية.
+          - تقرير أداء وسجل حتى 1000 فاتورة مع مهلة يومي عمل قبل التنظيف.
+          - Master PIN مخفي: 1997.
+          - طابور دائم لمزامنة الحالات؛ لا يدّعي النجاح قبل استجابة API رسمية.
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-KDS-Pro-Final-v5.0.0
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
