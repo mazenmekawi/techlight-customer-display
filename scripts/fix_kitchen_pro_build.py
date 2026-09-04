@@ -70,6 +70,39 @@ def repair_metadata_safe_helper() -> None:
     write_if_changed(path, text, patched)
 
 
+def ensure_history_trim_helper() -> None:
+    """Expose a deterministic bounded-history trim operation to the Pro UI.
+
+    KitchenProActivity warns before cleanup and then requests a target size. The
+    baseline store already owns persistence and ordering, so the operation belongs
+    there and removes only the oldest archived tickets; active orders are untouched.
+    """
+    path = ROOT / 'KitchenOrderStoreV2.java'
+    text = read(path)
+    if re.search(r'\bint\s+trimHistoryTo\s*\(', text):
+        write_if_changed(path, text, text)
+        return
+
+    anchor = '    public synchronized void clearActive()'
+    if anchor not in text:
+        raise SystemExit('Cannot insert trimHistoryTo helper: clearActive() anchor missing')
+
+    helper = '''    public synchronized int trimHistoryTo(int targetSize) {
+        int target = Math.max(0, targetSize);
+        int removed = 0;
+        while (history.size() > target) {
+            history.remove(history.size() - 1);
+            removed++;
+        }
+        if (removed > 0) persist();
+        return removed;
+    }
+
+'''
+    patched = text.replace(anchor, helper + anchor, 1)
+    write_if_changed(path, text, patched)
+
+
 def dedupe_switch_cases(text: str) -> str:
     """Remove only repeated case expressions inside the same switch block."""
     lines = text.splitlines(keepends=True)
@@ -149,6 +182,7 @@ def verify() -> None:
     activity = read(ROOT / 'KitchenProActivity.java')
     metadata = read(ROOT / 'KitchenProMetadataStore.java')
     parser = read(ROOT / 'KitchenVoiceIntentParser.java')
+    store = read(ROOT / 'KitchenOrderStoreV2.java')
 
     if 'addSettingsAction(' in activity and not re.search(
             r'\b(?:private|public|protected)\s+void\s+addSettingsAction\s*\(', activity):
@@ -160,10 +194,14 @@ def verify() -> None:
     if ('Type.MARK_READY' in parser
             and 'matches(normalized, "خلي", "اجعل", "mark", "make")' not in parser):
         raise SystemExit('MARK_READY parser does not support an intervening invoice number')
+    if ('trimHistoryTo(' in activity
+            and not re.search(r'\bint\s+trimHistoryTo\s*\(', store)):
+        raise SystemExit('KitchenOrderStoreV2.trimHistoryTo(int) still unresolved')
     print('Kitchen Pro generated-source verification passed')
 
 
 ensure_settings_action_helper()
 repair_metadata_safe_helper()
+ensure_history_trim_helper()
 repair_voice_parser()
 verify()
