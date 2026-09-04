@@ -53,19 +53,40 @@ jobs:
       - name: Enable hybrid cashier IP and cloud transport
         run: python3 scripts/finalize_kitchen_v48.py
 
-      - name: Apply TechLight Kitchen Pro 7.0 sources
+      - name: Apply TechLight Kitchen Pro generated sources
         run: python3 scripts/apply_kitchen_pro_sources.py
 
       - name: Verify and repair generated Pro sources
         run: python3 scripts/fix_kitchen_pro_build.py
 
+      - name: Apply TechLight Kitchen Pro 7.1 operational behavior
+        run: python3 scripts/finalize_kitchen_pro_v3.py
+
+      - name: Audit requested behavior
+        run: |
+          grep -q "versionName '7.1.0'" app/build.gradle
+          grep -q 'android.permission.CAMERA' app/src/main/AndroidManifest.xml
+          grep -q 'android:name=".KitchenProActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'android:name=".KitchenQrPairingActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'oldestFirstComparator' app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java
+          grep -q 'employeeFromVoice' app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java
+          grep -q 'toolbarChip("◉  Hi TechPro")' app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java
+          ! grep -q 'trainingMode' app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java
+          ! grep -q 'pro_smart_sort' app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java
+
       - name: Run tests and build APK
         run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Package APK and checksum
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TechLight-Kitchen-Pro-v7.1.0.apk
+          sha256sum dist/TechLight-Kitchen-Pro-v7.1.0.apk > dist/SHA256SUMS.txt
 
       - name: Upload TechLight Kitchen Pro APK
         uses: actions/upload-artifact@v4
         with:
-          name: TechLight-Kitchen-Pro-v7.0-hybrid-voice-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: TechLight-Kitchen-Pro-v7.1-oldest-employee-voice-debug
+          path: dist/
           if-no-files-found: error
           retention-days: 14
