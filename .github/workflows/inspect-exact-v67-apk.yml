@@ -23,7 +23,7 @@ jobs:
           python3 - <<'PY'
           import gdown
           url = 'https://drive.google.com/uc?id=1Cx5PDxCB1KRggWv5h1R0CBqRq2gIIfDC'
-          result = gdown.download(url=url, output='exact-v67.apk', quiet=False, fuzzy=True)
+          result = gdown.download(url, 'exact-v67.apk', quiet=False)
           if not result:
               raise SystemExit('gdown did not return a file')
           PY
