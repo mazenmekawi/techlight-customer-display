@@ -21,15 +21,19 @@ jobs:
           set -euxo pipefail
           BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           test -n "$BT"
-          mkdir -p dist/lib
+          mkdir -p dist/lib dist/lib64
           cp "$BT/apksigner" dist/
           cp "$BT/zipalign" dist/
           cp "$BT/lib/apksigner.jar" dist/lib/
+          LIBCPP="$(find "$BT" "$ANDROID_HOME" -type f -name 'libc++.so' | head -n 1)"
+          test -n "$LIBCPP"
+          cp "$LIBCPP" dist/lib64/
           chmod +x dist/apksigner dist/zipalign
           "$BT/apksigner" version | tee dist/version.txt
+          ldd "$BT/zipalign" | tee dist/zipalign-ldd.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apksigner-tools
+          name: android-apksigner-tools-with-libcpp
           path: dist/
           retention-days: 7
           if-no-files-found: error
