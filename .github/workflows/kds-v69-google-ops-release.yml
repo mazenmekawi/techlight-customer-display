@@ -1,0 +1,102 @@
+name: Publish TechLight Kitchen v6.9 Google Ops
+
+on:
+  push:
+    branches: [ kds-v67-stable-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-kds-v69-google-ops
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate verified hybrid baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Restore stable operational screen and apply v6.9 experience
+        run: |
+          python3 scripts/apply_kds_stable_sources.py
+          python3 scripts/finalize_kitchen_stable_v68.py
+          python3 scripts/finalize_kitchen_stable_v69_google_ops.py
+
+      - name: Verify source invariants
+        run: |
+          python3 -m py_compile scripts/finalize_kitchen_stable_v69_google_ops.py
+          grep -q "versionName '6.9.0-google-ops'" app/build.gradle
+          grep -q 'new KitchenMotionGrid(this)' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenMaterialStyler.apply(this, shell)' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenAlertEngine.playLate' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenAlertEngine.playModified' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'Comparator.comparingLong' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showEmployeePicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showGroupPicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'startOldest' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showPerformanceReport' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+
+      - name: Test and build APK
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/debug/app-debug.apk release/TechLight-Kitchen-Google-Ops-v6.9.0.apk
+          sha256sum release/TechLight-Kitchen-Google-Ops-v6.9.0.apk | tee release/SHA256SUMS.txt
+          cat > release/README-AR.txt <<'EOF'
+          TechLight Kitchen Google Ops v6.9.0
+
+          نسخة اختبار مستقرة مبنية فوق خط 6.7/6.8.
+          - تصميم Google/Material نظيف وهوية TechLight.
+          - حركة خفيفة للطلبات الجديدة والمعدلة.
+          - ترتيب الأقدم أولاً ومراحل تشغيل واضحة.
+          - صوت منفصل للطلب الجديد ولتعديل الإضافات.
+          - إنذار قوي للطلبات المتأخرة عبر قناة Alarm.
+          - اهتزاز وضبط قوة الصوت ووقت التأخير وتكرار التنبيه.
+          - كتم مؤقت 15 دقيقة واختبار مباشر للأصوات.
+          - اختيار الموظف والمجموعة وتشغيل أقدم طلب وتقرير أداء.
+          - السلال المؤقتة لا تدخل شاشة المطبخ.
+          EOF
+
+      - name: Publish test release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: techlight-kds-v6.9.0-google-ops
+          name: TechLight Kitchen Google Ops v6.9.0
+          body: |
+            نسخة اختبار ميداني لشاشة مطبخ TechLight، مبنية على خط 6.7/6.8 المستقر.
+            تتضمن واجهة Material، حركة خفيفة، منطق الأقدم أولاً، وتنبيهات قوية ومختلفة للطلب الجديد والتعديل والتأخير.
+          prerelease: true
+          make_latest: false
+          files: |
+            release/TechLight-Kitchen-Google-Ops-v6.9.0.apk
+            release/SHA256SUMS.txt
+            release/README-AR.txt
+          fail_on_unmatched_files: true
+          overwrite_files: true
