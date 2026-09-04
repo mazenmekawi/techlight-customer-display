@@ -97,14 +97,20 @@ public final class KitchenVoiceParser {
                 "start preparing", "start preparation", "prepare invoice", "prepare order")) {
             return result(Type.START_PREPARING, number, arabic, true, wake, raw);
         }
-        if (number != null && containsAny(normalized,
+        if (number != null && (containsAny(normalized,
                 "خلي فاتوره جاهزه", "اجعل فاتوره جاهزه", "حول فاتوره جاهزه",
-                "mark invoice ready", "mark order ready", "make invoice ready", "make order ready")) {
+                "mark invoice ready", "mark order ready", "make invoice ready", "make order ready")
+                || (containsAny(normalized, "خلي", "اجعل", "حول", "mark", "make")
+                && containsAny(normalized, "فاتوره", "طلب", "invoice", "order")
+                && containsAny(normalized, "جاهزه", "جاهز", "ready")))) {
             return result(Type.MARK_READY, number, arabic, true, wake, raw);
         }
-        if (number != null && containsAny(normalized,
+        if (number != null && (containsAny(normalized,
                 "اكمل فاتوره", "انهي فاتوره", "تم تسليم فاتوره", "اقفل فاتوره",
-                "complete invoice", "complete order", "mark completed", "mark delivered")) {
+                "complete invoice", "complete order", "mark completed", "mark delivered")
+                || (containsAny(normalized, "اكمل", "انهي", "اقفل", "complete", "finish", "mark")
+                && containsAny(normalized, "فاتوره", "طلب", "invoice", "order")
+                && containsAny(normalized, "مكتمله", "مكتمل", "تم", "completed", "complete", "delivered")))) {
             return result(Type.MARK_COMPLETED, number, arabic, true, wake, raw);
         }
         return result(Type.UNKNOWN, number, arabic, false, wake, raw);
