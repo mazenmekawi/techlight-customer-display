@@ -1,0 +1,78 @@
+name: Build TechLight Kitchen Stable
+
+on:
+  push:
+    branches: [ kds-v67-stable-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kds-stable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-stable-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate hybrid baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Apply stable 6.8 screen
+        run: |
+          python3 scripts/apply_kds_stable_sources.py
+          python3 scripts/finalize_kitchen_stable_v68.py
+
+      - name: Audit stable invariants
+        run: |
+          grep -q "versionName '6.8.0-stable'" app/build.gradle
+          grep -q 'KitchenStableActivity' app/src/main/AndroidManifest.xml
+          grep -q 'Collections.sort(visible, Comparator.comparingLong(value -> value.createdAt))' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showEmployeePicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showGroupPicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'beepModified' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'beepLate' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+
+      - name: Run tests and assemble APK
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Package APK and generated sources
+        run: |
+          mkdir -p dist/generated-source
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TechLight-Kitchen-Stable-v6.8.0.apk
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java dist/generated-source/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenStableMetaStore.java dist/generated-source/
+          cp app/src/main/AndroidManifest.xml dist/generated-source/
+          cp app/build.gradle dist/generated-source/app-build.gradle
+          sha256sum dist/TechLight-Kitchen-Stable-v6.8.0.apk > dist/SHA256SUMS.txt
+          (cd dist/generated-source && zip -9 ../TechLight-Kitchen-Stable-v6.8.0-source.zip ./*)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-Kitchen-Stable-v6.8.0
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
