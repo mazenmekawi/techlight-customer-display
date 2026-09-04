@@ -118,6 +118,29 @@ def repair_voice_parser() -> None:
     patched = text
     if 'safe(input)' in patched and not re.search(r'\bString\s+safe\s*\(', patched):
         patched = patched.replace('safe(input)', '(input == null ? "" : input.trim())')
+
+    # A spoken invoice number naturally sits between the noun and the action:
+    # "خلي فاتورة 20 جاهزة" / "mark invoice 20 ready". Phrase-only matching
+    # misses these commands and falls through to FIND_INVOICE. Keep a strict
+    # action verb requirement, but allow the number to interrupt the phrase.
+    old_ready = r'''        if (!invoice.isEmpty() && matches(normalized,
+                "خلي فاتوره جاهزه", "اجعل فاتوره جاهزه", "فاتوره جاهزه", "الطلب جاهز",
+                "mark invoice ready", "mark order ready", "make invoice ready", "order is ready"))
+            return new Intent(Type.MARK_READY, invoice, arabic, true, wake, normalized, raw);
+'''
+    new_ready = r'''        if (!invoice.isEmpty() && (matches(normalized,
+                "خلي فاتوره جاهزه", "اجعل فاتوره جاهزه", "فاتوره جاهزه", "الطلب جاهز",
+                "mark invoice ready", "mark order ready", "make invoice ready", "order is ready")
+                || (matches(normalized, "خلي", "اجعل", "mark", "make")
+                && matches(normalized, "جاهزه", "جاهز", "ready"))))
+            return new Intent(Type.MARK_READY, invoice, arabic, true, wake, normalized, raw);
+'''
+    if old_ready in patched:
+        patched = patched.replace(old_ready, new_ready, 1)
+    elif ('Type.MARK_READY' in patched
+            and 'matches(normalized, "خلي", "اجعل", "mark", "make")' not in patched):
+        raise SystemExit('Cannot repair MARK_READY voice pattern: expected generated block missing')
+
     patched = dedupe_switch_cases(patched)
     write_if_changed(path, text, patched)
 
@@ -134,6 +157,9 @@ def verify() -> None:
         raise SystemExit('safeClear still unresolved')
     if 'safe(input)' in parser and not re.search(r'\bString\s+safe\s*\(', parser):
         raise SystemExit('voice parser safe(input) still unresolved')
+    if ('Type.MARK_READY' in parser
+            and 'matches(normalized, "خلي", "اجعل", "mark", "make")' not in parser):
+        raise SystemExit('MARK_READY parser does not support an intervening invoice number')
     print('Kitchen Pro generated-source verification passed')
 
 
