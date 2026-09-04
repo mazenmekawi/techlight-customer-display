@@ -1,0 +1,109 @@
+name: Build TechLight Kitchen v6.9 Google Ops APK
+
+on:
+  push:
+    branches: [ kds-v67-stable-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kds-v69-google-ops-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-v69-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate verified hybrid baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Restore stable 6.8 operational screen
+        run: |
+          python3 scripts/apply_kds_stable_sources.py
+          python3 scripts/finalize_kitchen_stable_v68.py
+
+      - name: Apply Google-style motion and strong kitchen alerts
+        run: python3 scripts/finalize_kitchen_stable_v69_google_ops.py
+
+      - name: Audit promised v6.9 behavior
+        run: |
+          python3 -m py_compile scripts/finalize_kitchen_stable_v69_google_ops.py
+          grep -q "versionName '6.9.0-google-ops'" app/build.gradle
+          grep -q 'new KitchenMotionGrid(this)' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenMaterialStyler.apply(this, shell)' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenAlertEngine.playLate' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenAlertEngine.playModified' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'Comparator.comparingLong' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showEmployeePicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showGroupPicker' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'startOldest' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showPerformanceReport' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'STREAM_ALARM' app/src/main/java/sa/techlight/customerdisplay/KitchenAlertEngine.java
+          grep -q 'kds_late_after_minutes' app/src/main/java/sa/techlight/customerdisplay/KitchenMaterialStyler.java
+          grep -q 'kds_alert_snooze_until' app/src/main/java/sa/techlight/customerdisplay/KitchenMaterialStyler.java
+
+      - name: Run tests and assemble APK
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Package APK and verification files
+        run: |
+          mkdir -p dist/generated-source
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TechLight-Kitchen-Google-Ops-v6.9.0.apk
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java dist/generated-source/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenAlertEngine.java dist/generated-source/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenMotionGrid.java dist/generated-source/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenMaterialStyler.java dist/generated-source/
+          sha256sum dist/TechLight-Kitchen-Google-Ops-v6.9.0.apk | tee dist/SHA256SUMS.txt
+          cat > dist/README-AR.txt <<'EOF'
+          TechLight Kitchen Google Ops v6.9.0
+
+          نسخة مستقرة مبنية فوق خط 6.7/6.8 وليست امتداداً لنسخة 7.1 المرفوضة.
+
+          أهم التحسينات:
+          - واجهة Google/Material هادئة بهوية ضوء التقنية.
+          - حركة خفيفة فقط للطلب الجديد أو الفاتورة المعدلة، بدون مكتبات ثقيلة.
+          - ترتيب الأقدم أولاً وثبات كروت الطلبات.
+          - مراحل تشغيل واضحة: جديد، تحضير، جاهز، تم التسليم، سجل.
+          - صوتان منفصلان للطلب الجديد وللتعديل/الإضافات.
+          - إنذار تأخير قوي عبر قناة Alarm مع اهتزاز اختياري.
+          - ضبط وقت اعتبار الطلب متأخراً وتكرار التنبيه وقوة الصوت.
+          - زر اختبار للأصوات الثلاثة وكتم مؤقت لمدة 15 دقيقة.
+          - اختيار الموظف والمجموعة، تشغيل أقدم طلب، وتقرير الأداء.
+          - الاحتفاظ بمنطق الفاتورة الحقيقي واستبعاد السلال المؤقتة.
+          - إعادة اتصال تلقائية وطابور مزامنة للحالات عند انقطاع الشبكة.
+
+          ملاحظة اختبار:
+          تم اجتياز اختبارات المشروع وبناء APK آلياً. يلزم اختبار ميداني على جهاز المطبخ
+          مع حساب TechPro الفعلي للتأكد من مستوى الصوت وربط البيانات في بيئة الفرع.
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-Kitchen-Google-Ops-v6.9.0
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
