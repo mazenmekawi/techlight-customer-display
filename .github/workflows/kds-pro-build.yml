@@ -37,14 +37,19 @@ jobs:
         run: python3 scripts/apply_kitchen_pro_sources.py
       - name: Apply Kitchen Pro 7.0 production layer
         run: python3 scripts/finalize_kitchen_pro.py
+      - name: Repair and verify generated Kitchen Pro sources
+        run: python3 scripts/fix_kitchen_pro_build.py
       - name: Unit tests and APK
         run: gradle --no-daemon testDebugUnitTest assembleDebug
-      - name: Collect reports
+      - name: Collect reports and generated sources
         if: always()
         run: |
-          mkdir -p build-reports
+          mkdir -p build-reports/generated-source
           cp -R app/build/reports build-reports/ 2>/dev/null || true
           cp -R app/build/test-results build-reports/ 2>/dev/null || true
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenProActivity.java build-reports/generated-source/ 2>/dev/null || true
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenProMetadataStore.java build-reports/generated-source/ 2>/dev/null || true
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenVoiceIntentParser.java build-reports/generated-source/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
