@@ -1,0 +1,39 @@
+name: Export Android compile tools
+
+on:
+  push:
+    branches: [ kds-v67-exact-apk-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Package android.jar and D8/R8
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          PLATFORM="$(find "$SDK/platforms" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -f "$PLATFORM/android.jar"
+          test -f "$BT/lib/d8.jar" || test -f "$BT/lib/r8.jar"
+          mkdir -p dist/lib
+          cp "$PLATFORM/android.jar" dist/
+          if [ -f "$BT/lib/d8.jar" ]; then cp "$BT/lib/d8.jar" dist/lib/; fi
+          if [ -f "$BT/lib/r8.jar" ]; then cp "$BT/lib/r8.jar" dist/lib/; fi
+          if [ -x "$BT/d8" ]; then cp "$BT/d8" dist/; chmod +x dist/d8; fi
+          java -version 2> dist/java-version.txt
+          sha256sum dist/android.jar dist/lib/*.jar > dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-compile-tools
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
