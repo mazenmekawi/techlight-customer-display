@@ -1,0 +1,58 @@
+name: Export TechLight Kitchen Stable Sources
+
+on:
+  push:
+    branches: [ kds-v67-stable-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kds-stable-source-export-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  export-generated-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate verified hybrid baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Apply stable 6.8 sources
+        run: |
+          python3 scripts/apply_kds_stable_sources.py
+          python3 scripts/finalize_kitchen_stable_v68.py
+
+      - name: Package generated source files
+        run: |
+          mkdir -p source/app/src/main/java/sa/techlight/customerdisplay
+          mkdir -p source/app/src/main
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java source/app/src/main/java/sa/techlight/customerdisplay/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenStableMetaStore.java source/app/src/main/java/sa/techlight/customerdisplay/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenOrder.java source/app/src/main/java/sa/techlight/customerdisplay/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenOrderStoreV2.java source/app/src/main/java/sa/techlight/customerdisplay/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenQrPairingActivity.java source/app/src/main/java/sa/techlight/customerdisplay/
+          cp app/src/main/java/sa/techlight/customerdisplay/KitchenVoiceParser.java source/app/src/main/java/sa/techlight/customerdisplay/ 2>/dev/null || true
+          cp app/src/main/AndroidManifest.xml source/app/src/main/
+          cp app/build.gradle source/app/
+          cp scripts/finalize_kitchen_stable_v68.py source/
+          tar -czf TechLight-Kitchen-Stable-Generated-Sources.tgz -C source .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-Kitchen-Stable-Generated-Sources
+          path: TechLight-Kitchen-Stable-Generated-Sources.tgz
+          retention-days: 7
+          if-no-files-found: error
