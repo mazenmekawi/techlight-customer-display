@@ -1,0 +1,31 @@
+name: Export Android reverse engineering tools
+
+on:
+  push:
+    branches: [ kds-v67-exact-apk-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download JADX and Apktool
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          curl -L --fail --retry 3 -o dist/jadx-1.5.6.zip 'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip'
+          curl -L --fail --retry 3 -o dist/apktool_3.0.3.jar 'https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar'
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  dist/jadx-1.5.6.zip' | sha256sum -c -
+          echo 'dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423  dist/apktool_3.0.3.jar' | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-re-tools
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
