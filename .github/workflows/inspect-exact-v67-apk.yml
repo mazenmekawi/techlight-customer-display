@@ -11,27 +11,37 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
       - name: Download exact uploaded APK from Drive bridge
         shell: bash
         run: |
           set -euxo pipefail
-          curl -L --fail --retry 3 --output exact-v67.apk 'https://drive.usercontent.google.com/download?id=1Cx5PDxCB1KRggWv5h1R0CBqRq2gIIfDC&export=download&confirm=t'
+          python3 -m pip install --quiet gdown
+          python3 - <<'PY'
+          import gdown
+          url = 'https://drive.google.com/uc?id=1Cx5PDxCB1KRggWv5h1R0CBqRq2gIIfDC'
+          result = gdown.download(url=url, output='exact-v67.apk', quiet=False, fuzzy=True)
+          if not result:
+              raise SystemExit('gdown did not return a file')
+          PY
           file exact-v67.apk
           test "$(xxd -p -l 2 exact-v67.apk)" = '504b'
           test "$(stat -c%s exact-v67.apk)" -eq 414458
           echo 'ce64669c02d366af710b4ce30f9e5930a78f7b23faf216763b1f4b3fdfe3d6db  exact-v67.apk' | sha256sum -c -
+
       - name: Download JADX and decompile exact APK
         shell: bash
         run: |
           set -euxo pipefail
           curl -L --fail --retry 3 -o jadx.zip 'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip'
           unzip -q jadx.zip -d jadx
-          jadx/bin/jadx -d decompiled exact-v67.apk
+          jadx/bin/jadx --export-gradle -d decompiled exact-v67.apk
           grep -R "class KitchenActivityV6" -n decompiled/sources
           grep -R "class HybridClient" -n decompiled/sources
+
       - uses: actions/upload-artifact@v4
         with:
           name: exact-v67-jadx-source
