@@ -1,0 +1,110 @@
+name: Build TechLight Kitchen Stable 6.8 APK
+
+on:
+  push:
+    branches: [ kds-v67-stable-hotfix ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kds-v68-stable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-stable-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate verified hybrid KDS baseline
+        run: |
+          python3 scripts/finalize_kitchen_v4.py
+          python3 scripts/route_kitchen_v42.py
+          python3 scripts/finalize_kitchen_v43.py
+          python3 scripts/finalize_kitchen_v44.py
+          python3 scripts/finalize_kitchen_v45.py
+          python3 scripts/finalize_kitchen_v46.py
+          python3 scripts/finalize_kitchen_v47.py
+          python3 scripts/finalize_kitchen_v48.py
+
+      - name: Apply Stable 6.8 production layer
+        run: |
+          python3 scripts/apply_kds_stable_sources.py
+          python3 scripts/finalize_kitchen_stable_v68.py
+
+      - name: Audit promised behaviour
+        run: |
+          python3 -m py_compile scripts/apply_kds_stable_sources.py scripts/finalize_kitchen_stable_v68.py
+          grep -q 'versionName '\''6.8.0-stable'\''' app/build.gradle
+          grep -q 'android:name=".KitchenStableActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
+          grep -q 'Temporary carts stay outside the kitchen queue.' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'Collections.sort(visible, Comparator.comparingLong(value -> value.createdAt))' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'KitchenStableMetaStore' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+          grep -q 'showPerformanceReport' app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+
+      - name: Run tests and assemble stable APK
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug 2>&1 | tee build.log
+
+      - name: Package verified APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TechLight-Kitchen-Stable-v6.8.0.apk
+          sha256sum dist/TechLight-Kitchen-Stable-v6.8.0.apk | tee dist/SHA256SUMS.txt
+          cp build.log dist/build.log
+          cat > dist/README-AR.txt <<'EOF'
+          TechLight Kitchen Stable v6.8.0
+
+          مبنية على مسار KDS الهجين المستقر، وتشمل:
+          - ظهور الفواتير المعتمدة فقط؛ الطلبات المؤقتة لا تدخل المطبخ.
+          - ترتيب الأقدم أولاً وتوقيت حقيقي ثابت بعد إعادة التشغيل.
+          - دمج IP المحلي والسحابة مع استعادة اتصال تلقائية.
+          - بطاقة واحدة لكل فاتورة مع كشف التعديل والإضافات الجديدة.
+          - تنبيهات صوتية قوية ومختلفة للجديد والتعديل والتأخير، مع كتم وتأجيل.
+          - حالات جديد، تحضير، جاهز، تم التسليم، وسجل محفوظ.
+          - اختيار موظف، إدارة الموظفين، وتقرير أداء الوردية.
+          - فلترة المجموعات/المحطات، بحث بالفاتورة، وزر بدء الأقدم.
+          - أوامر صوتية عربية/إنجليزية وHi TechPro اختيارياً.
+          - تصميم Material/Google فاتح أو داكن وحركات خفيفة قابلة للإيقاف.
+          - شعار ضوء التقنية الكامل وواجهة مناسبة للتابلت والشاشات الكبيرة.
+
+          رمز مسح الطلبات الافتراضي: 0000
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-Kitchen-Stable-v6.8.0
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TechLight-Kitchen-Stable-v6.8.0-diagnostics
+          path: |
+            build.log
+            app/src/main/java/sa/techlight/customerdisplay/KitchenStableActivity.java
+            app/src/main/java/sa/techlight/customerdisplay/KitchenStableMetaStore.java
+            app/src/main/AndroidManifest.xml
+            app/build.gradle
+          retention-days: 7
+          if-no-files-found: warn
