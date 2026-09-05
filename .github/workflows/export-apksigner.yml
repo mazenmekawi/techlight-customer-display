@@ -25,11 +25,12 @@ jobs:
           cp "$BT/apksigner" dist/
           cp "$BT/zipalign" dist/
           cp "$BT/lib/apksigner.jar" dist/lib/
-          LIBCPP="$(find "$BT" "$ANDROID_HOME" -type f -name 'libc++.so' | head -n 1)"
-          test -n "$LIBCPP"
+          LIBCPP="$BT/lib64/libc++.so"
+          test -f "$LIBCPP"
           cp "$LIBCPP" dist/lib64/
           chmod +x dist/apksigner dist/zipalign
           "$BT/apksigner" version | tee dist/version.txt
+          LD_LIBRARY_PATH="$BT/lib64" "$BT/zipalign" -h > dist/zipalign-help.txt 2>&1 || true
           ldd "$BT/zipalign" | tee dist/zipalign-ldd.txt
       - uses: actions/upload-artifact@v4
         with:
